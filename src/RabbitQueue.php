@@ -43,7 +43,6 @@ class RabbitQueue extends Queue implements QueueContract
         $this->dispatchAfterCommit = $dispatchAfterCommit;
         $this->defaultQueue = $defaultQueue;
         $this->options = $options;
-
     }
 
     public function size($queue = null): int
