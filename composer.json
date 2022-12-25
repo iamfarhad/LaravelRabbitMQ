@@ -15,12 +15,19 @@
     },
     "autoload": {
         "psr-4": {
-            "Iamfarhad\\LaravelRabbitMQ\\": "src/"
+            "iamfarhad\\LaravelRabbitMQ\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Iamfarhad\\LaravelRabbitMQ\\Tests\\Unit\\": "tests/Unit"
+            "iamfarhad\\LaravelRabbitMQ\\Tests\\Unit\\": "tests/Unit"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "iamfarhad\\LaravelRabbitMQ\\LaravelRabbitQueueServiceProvider"
+            ]
         }
     },
     "license": "MIT",
@@ -30,5 +37,8 @@
             "email": "farhad.pd@gmail.com"
         }
     ],
-    "minimum-stability": "dev"
+    "minimum-stability": "dev",
+    "suggest": {
+        "ext-pcntl": "Required to use all features of the queue consumer."
+    }
 }
