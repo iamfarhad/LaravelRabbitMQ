@@ -63,8 +63,8 @@ class RabbitQueue extends Queue implements QueueContract
             $this->createPayload($job, $this->getQueue($queue), $data),
             $queue,
             null,
-            function ($payload, $queue) use ($data) {
-                return $this->pushRaw(payload: $payload, queue: $queue);
+            function ($payload, $queue) {
+                return $this->pushRaw($payload, $queue);
             }
         );
     }
@@ -382,7 +382,7 @@ class RabbitQueue extends Queue implements QueueContract
             'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
         ];
 
-        $currentPayload = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+        $currentPayload = json_decode($payload, true, 512);
         if ($correlationId = $currentPayload['id'] ?? null) {
             $properties['correlation_id'] = $correlationId;
         }
@@ -415,13 +415,10 @@ class RabbitQueue extends Queue implements QueueContract
     protected function publishProperties($queue, array $options = []): array
     {
         $queue = $this->getQueue($queue);
-        // @todo move to config
-        $attempts = 3;
+        $attempts = Arr::get($options, 'attempts') ?: 0;
 
         $destination = $queue;
         $exchange = $queue;
-
-        // @todo move to config
         $exchangeType = AMQPExchangeType::TOPIC;
 
         return [$destination, $exchange, $exchangeType, $attempts];

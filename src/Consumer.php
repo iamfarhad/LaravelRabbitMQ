@@ -63,21 +63,17 @@ class Consumer extends Worker
      *
      * @throws Throwable
      */
-    public function daemon($connectionName, $queue, WorkerOptions $options): int
+    public function daemon($connectionName, $queue, WorkerOptions $options)
     {
         if ($this->supportsAsyncSignals()) {
             $this->listenForSignals();
         }
-
-        $config = (array) $options;
 
         $lastRestart = $this->getTimestampOfLastQueueRestart();
 
         [$startTime, $jobsProcessed] = [hrtime(true) / 1e9, 0];
 
         $connection = $this->manager->connection($connectionName);
-        $connection->declareQueue($queue);
-        $connection->setOptions($config);
 
         $this->channel = $connection->getChannel();
 
@@ -144,7 +140,7 @@ class Consumer extends Worker
                 $this->exceptions->report($exception);
 
                 $this->kill(1);
-            } catch (Exception | Throwable $exception) {
+            } catch (Exception|Throwable $exception) {
                 $this->exceptions->report($exception);
 
                 $this->stopWorkerIfLostConnection($exception);
