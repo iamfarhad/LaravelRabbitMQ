@@ -140,7 +140,7 @@ class Consumer extends Worker
                 $this->exceptions->report($exception);
 
                 $this->kill(1);
-            } catch (Exception|Throwable $exception) {
+            } catch (Exception | Throwable $exception) {
                 $this->exceptions->report($exception);
 
                 $this->stopWorkerIfLostConnection($exception);
