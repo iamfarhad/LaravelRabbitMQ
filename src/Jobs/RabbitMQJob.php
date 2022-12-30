@@ -76,7 +76,6 @@ class RabbitMQJob extends Job implements JobContract
 
     /**
      * {@inheritdoc}
-     * @throws JsonException
      */
     public function markAsFailed(): void
     {
@@ -125,11 +124,6 @@ class RabbitMQJob extends Job implements JobContract
         $this->rabbitmq->ack($this);
     }
 
-    /**
-     * Get the underlying RabbitMQ connection.
-     *
-     * @return RabbitQueue
-     */
     public function getRabbitMQ(): RabbitQueue
     {
         return $this->rabbitmq;

@@ -12,6 +12,11 @@ class LaravelRabbitQueueServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->mergeConfigFrom(
+            __DIR__ . '/../Config/RabbitMQConnectionConfig.php',
+            'queue.connections.rabbitmq'
+        );
+
         if ($this->app->runningInConsole()) {
             $this->app->singleton('rabbitmq.consumer', function () {
                 $isDownForMaintenance = function () {
