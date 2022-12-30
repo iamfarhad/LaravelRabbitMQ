@@ -1,33 +1,28 @@
-name: Update changelog
+name: "Update Changelog"
+
 on:
   release:
-    types:
-      - published
+    types: [released, pre-release]
+
 jobs:
-  run:
-    name: Update changelog
+  update:
     runs-on: ubuntu-latest
-    env:
-      CHANGELOG_GITHUB_TOKEN: ${{ secrets.CHANGELOG_GITHUB_TOKEN }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v2
         with:
           ref: master
-      - name: Generate changelog
-        uses: addnab/docker-run-action@v3
+
+      - name: Update Changelog
+        uses: stefanzweifel/changelog-updater-action@v1
         with:
-          image: githubchangeloggenerator/github-changelog-generator
-          options: "-v ${{ github.workspace }}:/github/workspace --env SRC_PATH=/github/workspace --env CHANGELOG_GITHUB_TOKEN --workdir /github/workspace"
-          run: "github_changelog_generator --user iamfarhad --project LaravelRabbitMQ"
-      - name: Commit changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add CHANGELOG.md
-          git commit -m "update changelog" || true
-      - name: Push changes
-        uses: ad-m/github-push-action@master
+          latest-version: ${{ github.event.release.name }}
+          release-notes: ${{ github.event.release.body }}
+
+      - name: Commit updated CHANGELOG
+        uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: master
+          commit_message: Update CHANGELOG
+          file_pattern: CHANGELOG.md
