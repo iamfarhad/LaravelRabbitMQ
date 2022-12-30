@@ -10,6 +10,9 @@ Only the latest version will get new features. Bug fixes will be provided using 
 | 0               | 9               | ^8.1        | August 26th, 2023 | [Documentation](https://github.com/iamfarhad/LaravelRabbitMQ/blob/master/README.md) |
 
 
+this is experimental version of the package
+
+
 ## Installation
 
 You can install this package via composer using this command:
