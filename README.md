@@ -106,3 +106,5 @@ class TestJob implements ShouldQueue
 }
 
 ```
+
+Queues and Exchanges will be created automatically
