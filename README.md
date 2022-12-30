@@ -1,5 +1,9 @@
 # RabbitMQ Queue driver for Laravel
 
+The connection abstracts the socket connection, and takes care of protocol version negotiation and authentication and so
+on for us. Here we connect to a RabbitMQ node on the local machine - hence the localhost. If we wanted to connect to a
+node on a different machine or to a host hosting a [proxy recommended for PHP clients](https://github.com/cloudamqp/amqproxy), we'd simply specify its hostname
+or IP address here.
 
 ## Support Policy
 
@@ -9,9 +13,7 @@ Only the latest version will get new features. Bug fixes will be provided using 
 |-----------------|-----------------|-------------|-------------------|-------------------------------------------------------------------------------------|
 | 0               | 9               | ^8.1        | August 26th, 2023 | [Documentation](https://github.com/iamfarhad/LaravelRabbitMQ/blob/master/README.md) |
 
-
 this is experimental version of the package
-
 
 ## Installation
 
@@ -85,7 +87,6 @@ There are two ways of consuming messages.
 ```shell
   php artisan rabbitmq:consume --queue=customQueue
 ```
-
 
 You can create jobs with custom queue same as below
 
