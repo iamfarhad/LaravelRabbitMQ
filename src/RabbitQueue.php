@@ -263,7 +263,7 @@ class RabbitQueue extends Queue implements QueueContract
      */
     public function getJobClass(): string
     {
-        $job = Arr::get($this->options, 'job', RabbitMQJob::class);
+        $job = config('queue.connections.rabbitmq.options.queue.job');
 
         throw_if(
             ! is_a($job, RabbitMQJob::class, true),

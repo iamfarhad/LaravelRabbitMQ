@@ -3,7 +3,7 @@
 namespace iamfarhad\LaravelRabbitMQ;
 
 use Exception;
-use Illuminate\Container\Container;
+use Illuminate\Container\Cosntainer;
 use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
 use PhpAmqpLib\Channel\AMQPChannel;
