@@ -10,6 +10,19 @@ jobs:
   tests:
     runs-on: ubuntu-latest
 
+    rabbitmq:
+      image: rabbitmq:latest
+      environment:
+        RABBITMQ_DEFAULT_USER: guest
+        RABBITMQ_DEFAULT_PASSWORD: guest
+        RABBITMQ_DEFAULT_VHOST: /
+      ports:
+        - "15671:15671
+        - "15672:15672
+        - "5671:5671
+        - "5672:5672"
+
+
     strategy:
       fail-fast: true
       matrix:
@@ -28,19 +41,14 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: dom, curl, libxml, mbstring, zip, pcntl
           coverage: none
-
-      - name: Set up Docker
-        run: |
-          sudo rm /usr/local/bin/docker-compose
-          curl -L https://github.com/docker/compose/releases/download/2.14.2/docker-compose-`uname -s`-`uname -m` > docker-compose
-          chmod +x docker-compose
-          sudo mv docker-compose /usr/local/bin
-
-      - name: Start Docker container
-        run: docker-compose up -d rabbitmq
+          tools: composer:v2
 
       - name: Install dependencies
-        run: composer update --prefer-dist --no-interaction --no-progress
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 5
+          command: composer update --${{ matrix.stability }} --prefer-dist --no-interaction --no-progress
 
       - name: Execute tests
-        run: sleep 10 && vendor/bin/phpunit --verbose
+        run: vendor/bin/phpunit --verbose
