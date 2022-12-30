@@ -10,19 +10,6 @@ jobs:
   tests:
     runs-on: ubuntu-latest
 
-    rabbitmq:
-      image: rabbitmq:latest
-      environment:
-        RABBITMQ_DEFAULT_USER: guest
-        RABBITMQ_DEFAULT_PASSWORD: guest
-        RABBITMQ_DEFAULT_VHOST: /
-      ports:
-        - "15671:15671
-        - "15672:15672
-        - "5671:5671
-        - "5672:5672"
-
-
     strategy:
       fail-fast: true
       matrix:
@@ -32,6 +19,19 @@ jobs:
     name: PHP ${{ matrix.php }} - ${{ matrix.stability }}
 
     steps:
+      - name: Git checkout
+        uses: actions/checkout@v2
+
+      - name: Start RabbitMQ
+        uses: namoshek/rabbitmq-github-action@v1
+        with:
+          version: '3.8.9'
+          ports: '1883:1883 8883:8883 15671:15671'
+          certificates: ${{ github.workspace }}/.ci/tls-certificates
+          config: ${{ github.workspace }}/.ci/rabbitmq.conf
+          definitions: ${{ github.workspace }}/.ci/definitions.json
+          container-name: 'mqtt'
+
       - name: Checkout code
         uses: actions/checkout@v2
 
