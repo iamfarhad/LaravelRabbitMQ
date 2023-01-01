@@ -1,5 +1,11 @@
 # RabbitMQ CHANGELOG
 
+## v0.0.5 - 2023-01-01
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.4...v0.0.5
+
+- Add Rector
+
 ## v0.0.4 - 2022-12-31
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.3...v0.0.4
