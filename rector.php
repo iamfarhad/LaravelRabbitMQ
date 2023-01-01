@@ -23,6 +23,8 @@ return static function (RectorConfig $rectorConfig): void {
             SetList::CODING_STYLE,
             SetList::NAMING,
             SetList::PRIVATIZATION,
-            SetList::TYPE_DECLARATION
+            SetList::TYPE_DECLARATION,
+            SetList::ACTION_INJECTION_TO_CONSTRUCTOR_INJECTION,
+            SetList::EARLY_RETURN
         ]);
 };
