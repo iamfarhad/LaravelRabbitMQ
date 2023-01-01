@@ -62,7 +62,7 @@ final class RabbitQueue extends Queue implements QueueContract
     /**
      * @throws JsonException
      */
-    public function pushRaw($payload, $queue = null, array $options = [])
+    public function pushRaw($payload, $queue = '', array $options = [])
     {
         [$destination, $exchange, $exchangeType, $attempts] = $this->publishProperties($queue, $options);
 
@@ -400,7 +400,7 @@ final class RabbitQueue extends Queue implements QueueContract
         ];
     }
 
-    private function publishProperties(?string $queue = '', array $options = []): array
+    private function publishProperties(string $queue = '', array $options = []): array
     {
         $queue = $this->getQueue($queue);
         $attempts = Arr::get($options, 'attempts') ?: 0;
