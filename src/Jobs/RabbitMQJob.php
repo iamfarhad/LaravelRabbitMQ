@@ -13,24 +13,18 @@ use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 
-class RabbitMQJob extends Job implements JobContract
+final class RabbitMQJob extends Job implements JobContract
 {
-    protected RabbitQueue $rabbitmq;
-
-    protected AMQPMessage $message;
-
-    protected array $decoded;
+    private readonly array $decoded;
 
     public function __construct(
         Container $container,
-        RabbitQueue $rabbitmq,
-        AMQPMessage $message,
+        protected RabbitQueue $rabbitQueue,
+        protected AMQPMessage $amqpMessage,
         string $connectionName,
         string $queue
     ) {
         $this->container = $container;
-        $this->rabbitmq = $rabbitmq;
-        $this->message = $message;
         $this->connectionName = $connectionName;
         $this->queue = $queue;
         $this->decoded = $this->payload();
@@ -49,7 +43,7 @@ class RabbitMQJob extends Job implements JobContract
      */
     public function getRawBody(): string
     {
-        return $this->message->getBody();
+        return $this->amqpMessage->getBody();
     }
 
     /**
@@ -57,20 +51,20 @@ class RabbitMQJob extends Job implements JobContract
      */
     public function attempts(): int
     {
-        if (! $data = $this->getRabbitMQMessageHeaders()) {
+        if (! $rabbitMQMessageHeaders = $this->getRabbitMQMessageHeaders()) {
             return 1;
         }
 
-        $laravelAttempts = (int) Arr::get($data, 'laravel.attempts', 0);
+        $laravelAttempts = (int) Arr::get($rabbitMQMessageHeaders, 'laravel.attempts', 0);
 
         return $laravelAttempts + 1;
     }
 
     private function convertMessageToFailed(): void
     {
-        if ($this->message->getExchange() !== 'failed_messages') {
-            $this->rabbitmq->declareQueue('failed_messages');
-            $this->rabbitmq->pushRaw($this->message->getBody(), 'failed_messages');
+        if ($this->amqpMessage->getExchange() !== 'failed_messages') {
+            $this->rabbitQueue->declareQueue('failed_messages');
+            $this->rabbitQueue->pushRaw($this->amqpMessage->getBody(), 'failed_messages');
         }
     }
 
@@ -84,7 +78,7 @@ class RabbitMQJob extends Job implements JobContract
         // We must tell rabbitMQ this Job is failed
         // The message must be rejected when the Job marked as failed, in case rabbitMQ wants to do some extra magic.
         // like: Death lettering the message to another exchange/routing-key.
-        $this->rabbitmq->reject($this);
+        $this->rabbitQueue->reject($this);
 
         $this->convertMessageToFailed();
     }
@@ -100,7 +94,7 @@ class RabbitMQJob extends Job implements JobContract
         // When delete is called and the Job was not failed, the message must be acknowledged.
         // This is because this is a controlled call by a developer. So the message was handled correct.
         if (! $this->failed) {
-            $this->rabbitmq->ack($this);
+            $this->rabbitQueue->ack($this);
         }
     }
 
@@ -116,26 +110,28 @@ class RabbitMQJob extends Job implements JobContract
         parent::release();
 
         // Always create a new message when this Job is released
-        $this->rabbitmq->laterRaw($delay, $this->message->getBody(), $this->queue, $this->attempts());
+        $this->rabbitQueue->laterRaw($delay, $this->amqpMessage->getBody(), $this->queue, $this->attempts());
 
         // Releasing a Job means the message was failed to process.
         // Because this Job message is always recreated and pushed as new message, this Job message is correctly handled.
         // We must tell rabbitMQ this job message can be removed by acknowledging the message.
-        $this->rabbitmq->ack($this);
+        $this->rabbitQueue->ack($this);
     }
 
     public function getRabbitMQ(): RabbitQueue
     {
-        return $this->rabbitmq;
+        return $this->rabbitQueue;
     }
+
     public function getRabbitMQMessage(): AMQPMessage
     {
-        return $this->message;
+        return $this->amqpMessage;
     }
-    protected function getRabbitMQMessageHeaders(): ?array
+
+    private function getRabbitMQMessageHeaders(): ?array
     {
         /** @var AMQPTable|null $headers */
-        if (! $headers = Arr::get($this->message->get_properties(), 'application_headers')) {
+        if (! $headers = Arr::get($this->amqpMessage->get_properties(), 'application_headers')) {
             return null;
         }
 

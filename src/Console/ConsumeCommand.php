@@ -8,7 +8,7 @@ use iamfarhad\LaravelRabbitMQ\Consumer;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'rabbitmq:consume')]
-class ConsumeCommand extends WorkCommand
+final class ConsumeCommand extends WorkCommand
 {
     protected $signature = 'rabbitmq:consume
                             {connection? : The name of the queue connection to work}
@@ -49,7 +49,7 @@ class ConsumeCommand extends WorkCommand
         parent::handle();
     }
 
-    protected function consumerTag(): string
+    private function consumerTag(): string
     {
         if ($consumerTag = $this->option('consumer-tag')) {
             return $consumerTag;

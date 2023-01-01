@@ -8,7 +8,7 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\ServiceProvider;
 
-class LaravelRabbitQueueServiceProvider extends ServiceProvider
+final class LaravelRabbitQueueServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
@@ -18,10 +18,8 @@ class LaravelRabbitQueueServiceProvider extends ServiceProvider
         );
 
         if ($this->app->runningInConsole()) {
-            $this->app->singleton('rabbitmq.consumer', function () {
-                $isDownForMaintenance = function () {
-                    return $this->app->isDownForMaintenance();
-                };
+            $this->app->singleton('rabbitmq.consumer', function (): \iamfarhad\LaravelRabbitMQ\Consumer {
+                $isDownForMaintenance = fn(): bool => $this->app->isDownForMaintenance();
 
                 return new Consumer(
                     $this->app['queue'],
@@ -31,12 +29,10 @@ class LaravelRabbitQueueServiceProvider extends ServiceProvider
                 );
             });
 
-            $this->app->singleton(ConsumeCommand::class, static function ($app) {
-                return new ConsumeCommand(
-                    $app['rabbitmq.consumer'],
-                    $app['cache.store']
-                );
-            });
+            $this->app->singleton(ConsumeCommand::class, static fn($app): \iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand => new ConsumeCommand(
+                $app['rabbitmq.consumer'],
+                $app['cache.store']
+            ));
 
             $this->commands([
                 ConsumeCommand::class,
@@ -49,8 +45,6 @@ class LaravelRabbitQueueServiceProvider extends ServiceProvider
         /** @var QueueManager $queue */
         $queue = $this->app['queue'];
 
-        $queue->addConnector('rabbitmq', function () {
-            return new RabbitMQConnector($this->app['events']);
-        });
+        $queue->addConnector('rabbitmq', fn(): \iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector => new RabbitMQConnector($this->app['events']));
     }
 }
