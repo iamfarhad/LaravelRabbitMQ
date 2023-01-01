@@ -157,7 +157,7 @@ final class RabbitQueue extends Queue implements QueueContract
         return null;
     }
 
-    public function getQueue(string $queue = null): string
+    public function getQueue(?string $queue = null): string
     {
         return $queue ?? $this->defaultQueue;
     }
