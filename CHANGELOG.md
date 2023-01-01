@@ -1,5 +1,11 @@
 # RabbitMQ CHANGELOG
 
+## v0.0.6 - 2023-01-01
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.5...v0.0.6
+
+Fix issue [#issue-1515688142](https://github.com/iamfarhad/LaravelRabbitMQ/issues/1#issue-1515688142)
+
 ## v0.0.5 - 2023-01-01
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.4...v0.0.5
