@@ -1,5 +1,11 @@
 # RabbitMQ CHANGELOG
 
+## v0.0.9 - 2023-01-02
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.8...v0.0.9
+
+- Fix critical bug in composer
+
 ## v0.0.8 - 2023-01-02
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.7...v0.0.8
