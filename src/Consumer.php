@@ -72,6 +72,7 @@ final class Consumer extends Worker
         $jobsProcessed = 0;
 
         $connection = $this->manager->connection($connectionName);
+        $connection->declareQueue($queue);
 
         $this->amqpChannel = $connection->getChannel();
 
