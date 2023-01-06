@@ -1,8 +1,11 @@
 <?xml version="1.0"?>
 <ruleset name="PHP_CodeSniffer">
     <description>The coding standard for our project.</description>
+    <file>src</file>
+    <file>tests</file>
+
     <rule ref="PSR12"/>
-    <exclude-pattern>tests/*</exclude-pattern>
+
 
     <!-- Show progression -->
     <arg value="p"/>
@@ -12,6 +15,4 @@
         <exclude name="Generic.WhiteSpace.DisallowTabIndent"/>
         <exclude name="Generic.Files.LineLength"/>
     </rule>
-
-    <file>src</file>
 </ruleset>

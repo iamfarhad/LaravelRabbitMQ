@@ -22,7 +22,7 @@ use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
 use Throwable;
 
-final class RabbitQueue extends Queue implements QueueContract
+class RabbitQueue extends Queue implements QueueContract
 {
     private AMQPChannel $amqpChannel;
     private RabbitMQJob $rabbitMQJob;
@@ -35,6 +35,11 @@ final class RabbitQueue extends Queue implements QueueContract
     ) {
         $this->amqpChannel = $connection->channel();
         $this->dispatchAfterCommit = $dispatchAfterCommit;
+    }
+
+    public function getConnection(): AbstractConnection
+    {
+        return $this->connection;
     }
 
     public function size($queue = null): int
@@ -157,12 +162,12 @@ final class RabbitQueue extends Queue implements QueueContract
         return null;
     }
 
-    public function getQueue(?string $queue = null): string
+    public function getQueue(string|null $queue = null): string
     {
         return $queue ?? $this->defaultQueue;
     }
 
-    public function queueExists(string $queue = null): bool
+    public function queueExists(string $queue): bool
     {
         $getQueue = $this->getQueue($queue);
 
@@ -295,7 +300,7 @@ final class RabbitQueue extends Queue implements QueueContract
     private function declareDestination(
         string $destination,
         ?string $exchange = null,
-        string $exchangeType = AMQPExchangeType::DIRECT
+        string $exchangeType = AMQPExchangeType::TOPIC
     ): void {
         // When the queue already exists, just return.
         if ($this->queueExists($destination)) {
@@ -363,7 +368,7 @@ final class RabbitQueue extends Queue implements QueueContract
     /**
      * @throws JsonException
      */
-    private function createMessage($payload, int $attempts = 2): array
+    public function createMessage($payload, int $attempts = 2): array
     {
         $properties = [
             'content_type' => 'application/json',
@@ -400,7 +405,7 @@ final class RabbitQueue extends Queue implements QueueContract
         ];
     }
 
-    private function publishProperties(?string $queue = null, array $options = []): array
+    private function publishProperties(string|null $queue = null, array $options = []): array
     {
         $queue = $this->getQueue($queue);
         $attempts = Arr::get($options, 'attempts') ?: 0;
@@ -410,5 +415,15 @@ final class RabbitQueue extends Queue implements QueueContract
         $exchangeType = AMQPExchangeType::TOPIC;
 
         return [$destination, $exchange, $exchangeType, $attempts];
+    }
+
+    public function purgeQueue(string $queue)
+    {
+        return $this->connection->channel()->queue_purge($queue, true);
+    }
+
+    public function deleteQueue(string $queue)
+    {
+        return $this->connection->channel()->queue_delete($queue);
     }
 }

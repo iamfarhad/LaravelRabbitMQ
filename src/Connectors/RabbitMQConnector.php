@@ -10,11 +10,12 @@ use Illuminate\Queue\Events\WorkerStopping;
 use PhpAmqpLib\Connection\AMQPConnectionConfig;
 use PhpAmqpLib\Connection\AMQPConnectionFactory;
 
-final class RabbitMQConnector implements ConnectorInterface
+class RabbitMQConnector implements ConnectorInterface
 {
     public function __construct(private readonly Dispatcher $dispatcher)
     {
-    }
+    }//end __construct()
+
 
     public function connect(array $config = []): Queue
     {
@@ -31,7 +32,6 @@ final class RabbitMQConnector implements ConnectorInterface
         $amqpConnectionConfig->setKeepalive(config('queue.connections.rabbitmq.hosts.keepalive'));
         $amqpConnectionConfig->setHeartbeat(config('queue.connections.rabbitmq.hosts.heartbeat'));
 
-
         // set SSL Options
         $amqpConnectionConfig->setSslCaCert(config('queue.connections.rabbitmq.options.ssl_options.cafile'));
         $amqpConnectionConfig->setSslCert(config('queue.connections.rabbitmq.options.ssl_options.local_cert'));
@@ -40,15 +40,13 @@ final class RabbitMQConnector implements ConnectorInterface
         $amqpConnectionConfig->setSslPassPhrase(config('queue.connections.rabbitmq.options.ssl_options.passphrase'));
 
         // Create AMQP Connection
-        $connection = AMQPConnectionFactory::create($amqpConnectionConfig);
+        $connection   = AMQPConnectionFactory::create($amqpConnectionConfig);
         $defaultQueue = config('queue.connections.rabbitmq.queue');
 
         $rabbitQueue = new RabbitQueue($connection, $defaultQueue);
 
-        $this->dispatcher->listen(WorkerStopping::class, static function () use ($rabbitQueue): void {
-            $rabbitQueue->close();
-        });
+        $this->dispatcher->listen(WorkerStopping::class, fn() => $rabbitQueue->close());
 
         return $rabbitQueue;
-    }
-}
+    }//end connect()
+}//end class

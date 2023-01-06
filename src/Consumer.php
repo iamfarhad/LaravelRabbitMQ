@@ -12,7 +12,7 @@ use PhpAmqpLib\Message\AMQPMessage;
 use Throwable;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 
-final class Consumer extends Worker
+class Consumer extends Worker
 {
     private Container $container;
 
@@ -26,38 +26,44 @@ final class Consumer extends Worker
 
     private AMQPChannel $amqpChannel;
 
-    private ?object $currentJob = null;
+    private object|null $currentJob = null;
+
 
     public function setContainer(Container $container): void
     {
         $this->container = $container;
-    }
+    }//end setContainer()
+
 
     public function setConsumerTag(string $value): void
     {
         $this->consumerTag = $value;
-    }
+    }//end setConsumerTag()
+
 
     public function setMaxPriority(int $value): void
     {
         $this->maxPriority = $value;
-    }
+    }//end setMaxPriority()
+
 
     public function setPrefetchSize(int $value): void
     {
         $this->prefetchSize = $value;
-    }
+    }//end setPrefetchSize()
+
 
     public function setPrefetchCount(int $value): void
     {
         $this->prefetchCount = $value;
-    }
+    }//end setPrefetchCount()
+
 
     /**
      * Listen to the given queue in a loop.
      *
-     * @param  string  $connectionName
-     * @param  string  $queue
+     * @param  string $connectionName
+     * @param  string $queue
      * @return int
      * @throws Throwable
      */
@@ -68,7 +74,7 @@ final class Consumer extends Worker
         }
 
         $timestampOfLastQueueRestart = $this->getTimestampOfLastQueueRestart();
-        $startTime = hrtime(true) / 1e9;
+        $startTime     = (hrtime(true) / 1e9);
         $jobsProcessed = 0;
 
         $connection = $this->manager->connection($connectionName);
@@ -82,10 +88,13 @@ final class Consumer extends Worker
             null
         );
 
-        $jobClass = $connection->getJobClass();
+        $jobClass  = $connection->getJobClass();
         $arguments = [];
         if ($this->maxPriority !== 0) {
-            $arguments['priority'] = ['I', $this->maxPriority];
+            $arguments['priority'] = [
+                'I',
+                $this->maxPriority,
+            ];
         }
 
         $this->amqpChannel->basic_consume(
@@ -166,19 +175,21 @@ final class Consumer extends Worker
             }
 
             $this->currentJob = null;
-        }
-    }
+        }//end while
+    }//end daemon()
+
 
     /**
      * Determine if the daemon should process on this iteration.
      *
-     * @param  string  $connectionName
-     * @param  string  $queue
+     * @param string $connectionName
+     * @param string $queue
      */
     protected function daemonShouldRun(WorkerOptions $workerOptions, $connectionName, $queue): bool
     {
         return !(($this->isDownForMaintenance)() && ! $workerOptions->force) && !$this->paused;
-    }
+    }//end daemonShouldRun()
+
 
     public function stop($status = 0, $options = []): int
     {
@@ -187,5 +198,5 @@ final class Consumer extends Worker
         $this->amqpChannel->basic_cancel($this->consumerTag, false, true);
 
         return parent::stop($status);
-    }
-}
+    }//end stop()
+}//end class

@@ -34,9 +34,12 @@ final class ConsumeCommand extends WorkCommand
 
     protected $description = 'Consume messages';
 
+
     public function handle(): void
     {
-        /** @var Consumer $consumer */
+        /*
+         * @var Consumer $consumer
+         */
         $consumer = $this->worker;
 
         $consumer->setContainer($this->laravel);
@@ -47,7 +50,8 @@ final class ConsumeCommand extends WorkCommand
         $consumer->setPrefetchCount((int) $this->option('prefetch-count'));
 
         parent::handle();
-    }
+    }//end handle()
+
 
     private function consumerTag(): string
     {
@@ -55,12 +59,15 @@ final class ConsumeCommand extends WorkCommand
             return $consumerTag;
         }
 
-        $consumerTag = implode('_', [
-            Str::slug(config('app.name', 'laravel')),
-            Str::slug($this->option('name')),
-            md5(serialize($this->options()) . Str::random(16) . getmypid()),
-        ]);
+        $consumerTag = implode(
+            '_',
+            [
+                Str::slug(config('app.name', 'laravel')),
+                Str::slug($this->option('name')),
+                md5(serialize($this->options()) . Str::random(16) . getmypid()),
+            ]
+        );
 
         return Str::substr($consumerTag, 0, 255);
-    }
-}
+    }//end consumerTag()
+}//end class

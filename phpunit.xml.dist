@@ -14,12 +14,13 @@
     </coverage>
     <testsuites>
         <testsuite name="Package Test Suite">
-            <directory suffix=".php">./tests/</directory>
+            <directory suffix="Test.php">./tests/</directory>
         </testsuite>
     </testsuites>
     <php>
-        <env name="HOST" value="127.0.0.1"/>
-        <env name="PORT" value="5672"/>
+        <env name="RABBITMQ_HOST" value="127.0.0.1"/>
+        <env name="QUEUE_CONNECTION" value="rabbitmq"/>
+        <env name="RABBITMQ_PORT" value="5672"/>
         <env name="PORT_SSL" value="5671"/>
         <env name="RABBITMQ_SSL_CAFILE" value="./tests/files/rootCA.pem"/>
     </php>
