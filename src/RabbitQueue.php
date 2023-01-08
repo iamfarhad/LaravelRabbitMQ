@@ -2,29 +2,29 @@
 
 namespace iamfarhad\LaravelRabbitMQ;
 
-use ErrorException;
-use Exception;
-use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
-use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
-use Illuminate\Queue\Queue;
-use Illuminate\Contracts\Queue\Queue as QueueContract;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
-use JsonException;
-use PhpAmqpLib\Channel\AMQPChannel;
-use PhpAmqpLib\Connection\AbstractConnection;
-use PhpAmqpLib\Exception\AMQPChannelClosedException;
 use PhpAmqpLib\Exception\AMQPConnectionClosedException;
+use Illuminate\Contracts\Queue\Queue as QueueContract;
 use PhpAmqpLib\Exception\AMQPProtocolChannelException;
+use PhpAmqpLib\Exception\AMQPChannelClosedException;
+use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use PhpAmqpLib\Exception\AMQPRuntimeException;
+use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Exchange\AMQPExchangeType;
+use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
+use Illuminate\Queue\Queue;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
+use ErrorException;
+use JsonException;
+use Exception;
 use Throwable;
 
 class RabbitQueue extends Queue implements QueueContract
 {
     private AMQPChannel $amqpChannel;
+
     private RabbitMQJob $rabbitMQJob;
 
     public function __construct(

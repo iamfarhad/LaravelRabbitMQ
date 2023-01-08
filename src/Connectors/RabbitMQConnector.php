@@ -2,13 +2,13 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Connectors;
 
-use iamfarhad\LaravelRabbitMQ\RabbitQueue;
-use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Queue\Connectors\ConnectorInterface;
-use Illuminate\Queue\Events\WorkerStopping;
-use PhpAmqpLib\Connection\AMQPConnectionConfig;
 use PhpAmqpLib\Connection\AMQPConnectionFactory;
+use PhpAmqpLib\Connection\AMQPConnectionConfig;
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Queue\Events\WorkerStopping;
+use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use Illuminate\Contracts\Queue\Queue;
 
 class RabbitMQConnector implements ConnectorInterface
 {

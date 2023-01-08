@@ -2,10 +2,9 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Console;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Illuminate\Queue\Console\WorkCommand;
 use Illuminate\Support\Str;
-use iamfarhad\LaravelRabbitMQ\Consumer;
-use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'rabbitmq:consume')]
 final class ConsumeCommand extends WorkCommand

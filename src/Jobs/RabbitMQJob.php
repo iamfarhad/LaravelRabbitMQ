@@ -2,16 +2,13 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Jobs;
 
-use Illuminate\Container\Container;
-use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Contracts\Queue\Job as JobContract;
+use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use Illuminate\Container\Container;
+use PhpAmqpLib\Message\AMQPMessage;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
 use JsonException;
-use PhpAmqpLib\Exception\AMQPProtocolChannelException;
-use PhpAmqpLib\Message\AMQPMessage;
-use PhpAmqpLib\Wire\AMQPTable;
-use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 
 final class RabbitMQJob extends Job implements JobContract
 {
@@ -131,9 +128,6 @@ final class RabbitMQJob extends Job implements JobContract
 
     private function getRabbitMQMessageHeaders(): ?array
     {
-        /*
-         * @var AMQPTable|null $headers
-         */
         if (! $headers = Arr::get($this->amqpMessage->get_properties(), 'application_headers')) {
             return null;
         }

@@ -5,7 +5,6 @@ namespace iamfarhad\LaravelRabbitMQ;
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
 use Illuminate\Contracts\Debug\ExceptionHandler;
-use Illuminate\Queue\QueueManager;
 use Illuminate\Support\ServiceProvider;
 
 final class LaravelRabbitQueueServiceProvider extends ServiceProvider
@@ -20,7 +19,7 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->app->singleton(
                 'rabbitmq.consumer',
-                function (): \iamfarhad\LaravelRabbitMQ\Consumer {
+                function (): Consumer {
                     $isDownForMaintenance = fn(): bool => $this->app->isDownForMaintenance();
 
                     return new Consumer(
@@ -34,7 +33,7 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
 
             $this->app->singleton(
                 ConsumeCommand::class,
-                static fn($app): \iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand => new ConsumeCommand(
+                static fn($app): ConsumeCommand => new ConsumeCommand(
                     $app['rabbitmq.consumer'],
                     $app['cache.store']
                 )
@@ -50,11 +49,8 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        /*
-         * @var QueueManager $queue
-         */
         $queue = $this->app['queue'];
 
-        $queue->addConnector('rabbitmq', fn(): \iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector => new RabbitMQConnector($this->app['events']));
+        $queue->addConnector('rabbitmq', fn(): RabbitMQConnector => new RabbitMQConnector($this->app['events']));
     }
 }
