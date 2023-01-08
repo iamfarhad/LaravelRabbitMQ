@@ -18,8 +18,8 @@ class RabbitMQQueueTest extends FeatureTestCase
         $getQueueInstance = $this->app['queue'];
         $this->connection = $getQueueInstance->connection('rabbitmq');
 
-        $this->connection->purgeQueue('test_size');
-        $this->connection->purgeQueue('queue_test');
+        $this->connection->deleteQueue('test_size');
+        $this->connection->deleteQueue('queue_test');
     }
 
     public function testRabbitMQSize(): void
@@ -37,10 +37,7 @@ class RabbitMQQueueTest extends FeatureTestCase
     {
         $queue = 'queue_test';
         $this->connection->declareQueue($queue);
-
         $this->assertTrue($this->connection->queueExists($queue));
-
-        $this->connection->deleteQueue($queue);
     }
 
     public function testRabbitMQExistsQueue(): void
