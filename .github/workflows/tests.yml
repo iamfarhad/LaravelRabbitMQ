@@ -7,33 +7,46 @@ on:
     - cron: '0 0 * * *'
 
 jobs:
-  tests:
-    runs-on: ubuntu-latest
-
+  run:
+    runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: true
       matrix:
         php: ['8.1', '8.2']
         stability: [prefer-stable]
 
+    services:
+      rabbitmq:
+        # 3.8.10 and later versions has enabled TLSv1.3 by default which is not supported by PHP images
+        # TLSv1.3 can be disabled by using configuration file, but not environment variables
+        image: rabbitmq:3.8.9-management
+        ports:
+          - 5671:5671
+          - 5672:5672
+          - 15671:15671
+          - 15672:15672
+        volumes:
+          - ${{ github.workspace }}:/src
+        env:
+          RABBITMQ_SSL_CACERTFILE: /src/tests/certs/ca_certificate.pem
+          RABBITMQ_SSL_CERTFILE: /src/tests/certs/server_certificate.pem
+          RABBITMQ_SSL_KEYFILE: /src/tests/certs/server_key.pem
+          RABBITMQ_SSL_VERIFY: verify_peer
+          RABBITMQ_SSL_FAIL_IF_NO_PEER_CERT: 0
+      proxy:
+        image: ghcr.io/shopify/toxiproxy:2.5.0
+        ports:
+          - 8474:8474
+          - 5673:5673
+
     name: PHP ${{ matrix.php }} - ${{ matrix.stability }}
-
+    env:
+      TOXIPROXY_HOST: localhost
+      TOXIPROXY_AMQP_TARGET: rabbitmq
+      TOXIPROXY_AMQP_PORT: 5673
     steps:
-      - name: Git checkout
-        uses: actions/checkout@v2
-
-      - name: Start RabbitMQ
-        uses: namoshek/rabbitmq-github-action@v1
-        with:
-          version: '3.8.9'
-          ports: '1883:1883 8883:8883 15671:15671'
-          certificates: ${{ github.workspace }}/.ci/tls-certificates
-          config: ${{ github.workspace }}/.ci/rabbitmq.conf
-          definitions: ${{ github.workspace }}/.ci/definitions.json
-          container-name: 'mqtt'
-
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
