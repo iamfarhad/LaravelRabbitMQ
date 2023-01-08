@@ -29,11 +29,8 @@ class RabbitMQQueueTest extends FeatureTestCase
         $this->assertTrue($this->connection->getConnection()->isConnected());
         $this->assertTrue($this->connection->getConnection()->channel()->is_open());
 
-//        $this->assertEquals(0, $this->connection->size());
-
         dispatch(new TestJobMock('Farhad Zand'))->onQueue($queue);
         $this->assertEquals(1, $this->connection->size($queue));
-        $this->connection->purgeQueue($queue);
     }
 
     public function testRabbitMQDeclareQueue(): void
