@@ -50,8 +50,7 @@ final class ConsumeCommand extends WorkCommand
         $consumer->setPrefetchCount((int) $this->option('prefetch-count'));
 
         parent::handle();
-    }//end handle()
-
+    }
 
     private function consumerTag(): string
     {
@@ -69,5 +68,5 @@ final class ConsumeCommand extends WorkCommand
         );
 
         return Str::substr($consumerTag, 0, 255);
-    }//end consumerTag()
-}//end class
+    }
+}

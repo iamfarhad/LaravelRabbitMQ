@@ -14,8 +14,7 @@ class RabbitMQConnector implements ConnectorInterface
 {
     public function __construct(private readonly Dispatcher $dispatcher)
     {
-    }//end __construct()
-
+    }
 
     public function connect(array $config = []): Queue
     {
@@ -48,5 +47,5 @@ class RabbitMQConnector implements ConnectorInterface
         $this->dispatcher->listen(WorkerStopping::class, fn() => $rabbitQueue->close());
 
         return $rabbitQueue;
-    }//end connect()
-}//end class
+    }
+}

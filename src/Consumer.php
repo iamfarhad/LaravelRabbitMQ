@@ -32,31 +32,29 @@ class Consumer extends Worker
     public function setContainer(Container $container): void
     {
         $this->container = $container;
-    }//end setContainer()
-
+    }
 
     public function setConsumerTag(string $value): void
     {
         $this->consumerTag = $value;
-    }//end setConsumerTag()
-
+    }
 
     public function setMaxPriority(int $value): void
     {
         $this->maxPriority = $value;
-    }//end setMaxPriority()
+    }
 
 
     public function setPrefetchSize(int $value): void
     {
         $this->prefetchSize = $value;
-    }//end setPrefetchSize()
+    }
 
 
     public function setPrefetchCount(int $value): void
     {
         $this->prefetchCount = $value;
-    }//end setPrefetchCount()
+    }
 
 
     /**
@@ -175,9 +173,8 @@ class Consumer extends Worker
             }
 
             $this->currentJob = null;
-        }//end while
-    }//end daemon()
-
+        }
+    }
 
     /**
      * Determine if the daemon should process on this iteration.
@@ -188,7 +185,7 @@ class Consumer extends Worker
     protected function daemonShouldRun(WorkerOptions $workerOptions, $connectionName, $queue): bool
     {
         return !(($this->isDownForMaintenance)() && ! $workerOptions->force) && !$this->paused;
-    }//end daemonShouldRun()
+    }
 
 
     public function stop($status = 0, $options = []): int
@@ -198,5 +195,5 @@ class Consumer extends Worker
         $this->amqpChannel->basic_cancel($this->consumerTag, false, true);
 
         return parent::stop($status);
-    }//end stop()
-}//end class
+    }
+}

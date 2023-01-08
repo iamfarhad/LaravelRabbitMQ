@@ -29,8 +29,7 @@ final class RabbitMQJob extends Job implements JobContract
         $this->connectionName = $connectionName;
         $this->queue          = $queue;
         $this->decoded        = $this->payload();
-    }//end __construct()
-
+    }
 
     /**
      * {@inheritdoc}
@@ -38,8 +37,7 @@ final class RabbitMQJob extends Job implements JobContract
     public function getJobId()
     {
         return $this->decoded['id'] ?? null;
-    }//end getJobId()
-
+    }
 
     /**
      * {@inheritdoc}
@@ -47,8 +45,7 @@ final class RabbitMQJob extends Job implements JobContract
     public function getRawBody(): string
     {
         return $this->amqpMessage->getBody();
-    }//end getRawBody()
-
+    }
 
     /**
      * {@inheritdoc}
@@ -62,7 +59,7 @@ final class RabbitMQJob extends Job implements JobContract
         $laravelAttempts = (int) Arr::get($rabbitMQMessageHeaders, 'laravel.attempts', 0);
 
         return ($laravelAttempts + 1);
-    }//end attempts()
+    }
 
 
     private function convertMessageToFailed(): void
@@ -71,8 +68,7 @@ final class RabbitMQJob extends Job implements JobContract
             $this->rabbitQueue->declareQueue('failed_messages');
             $this->rabbitQueue->pushRaw($this->amqpMessage->getBody(), 'failed_messages');
         }
-    }//end convertMessageToFailed()
-
+    }
 
     /**
      * {@inheritdoc}
@@ -87,8 +83,7 @@ final class RabbitMQJob extends Job implements JobContract
         $this->rabbitQueue->reject($this);
 
         $this->convertMessageToFailed();
-    }//end markAsFailed()
-
+    }
 
     /**
      * {@inheritdoc}
@@ -102,8 +97,7 @@ final class RabbitMQJob extends Job implements JobContract
         if (! $this->failed) {
             $this->rabbitQueue->ack($this);
         }
-    }//end delete()
-
+    }
 
     /**
      * Release the job back into the queue.
@@ -123,20 +117,17 @@ final class RabbitMQJob extends Job implements JobContract
         // Because this Job message is always recreated and pushed as new message, this Job message is correctly handled.
         // We must tell rabbitMQ this job message can be removed by acknowledging the message.
         $this->rabbitQueue->ack($this);
-    }//end release()
-
+    }
 
     public function getRabbitMQ(): RabbitQueue
     {
         return $this->rabbitQueue;
-    }//end getRabbitMQ()
-
+    }
 
     public function getRabbitMQMessage(): AMQPMessage
     {
         return $this->amqpMessage;
-    }//end getRabbitMQMessage()
-
+    }
 
     private function getRabbitMQMessageHeaders(): ?array
     {
@@ -148,5 +139,5 @@ final class RabbitMQJob extends Job implements JobContract
         }
 
         return $headers->getNativeData();
-    }//end getRabbitMQMessageHeaders()
-}//end class
+    }
+}

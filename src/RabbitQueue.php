@@ -136,7 +136,7 @@ class RabbitQueue extends Queue implements QueueContract
                 );
             }
         } catch (AMQPProtocolChannelException $amqpProtocolChannelException) {
-            // If there is not exchange or queue AMQP will throw exception with code 404
+            // If there is no exchange or queue AMQP will throw exception with code 404
             // We need to catch it and return null
             if ($amqpProtocolChannelException->amqp_reply_code === 404) {
                 // Because of the channel exception the channel was closed and removed.

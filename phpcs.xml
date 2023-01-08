@@ -1,14 +1,14 @@
 <?xml version="1.0"?>
 <ruleset name="PHP_CodeSniffer">
     <description>The coding standard for our project.</description>
-    <file>src</file>
-
     <rule ref="PSR12"/>
+
+    <file>src</file>
+    <file>tests</file>
 
 
     <!-- Show progression -->
     <arg value="p"/>
-    <arg name="extensions" value="php"/>
 
     <rule ref="PSR12">
         <exclude name="Generic.WhiteSpace.DisallowTabIndent"/>

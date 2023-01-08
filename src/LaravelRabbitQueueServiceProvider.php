@@ -46,8 +46,7 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
                 ]
             );
         }//end if
-    }//end register()
-
+    }
 
     public function boot(): void
     {
@@ -57,5 +56,5 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
         $queue = $this->app['queue'];
 
         $queue->addConnector('rabbitmq', fn(): \iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector => new RabbitMQConnector($this->app['events']));
-    }//end boot()
-}//end class
+    }
+}
