@@ -11,7 +11,12 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.1', '8.2']
+        os: [ubuntu-latest]
         stability: [prefer-stable]
+        laravel: [9.*]
+        include:
+          - laravel: 9.*
+            testbench: 7.*
 
     services:
       rabbitmq:
@@ -36,12 +41,13 @@ jobs:
         ports:
           - 8474:8474
           - 5673:5673
-
-    name: PHP ${{ matrix.php }} - ${{ matrix.stability }}
     env:
       TOXIPROXY_HOST: localhost
       TOXIPROXY_AMQP_TARGET: rabbitmq
       TOXIPROXY_AMQP_PORT: 5673
+
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -53,16 +59,13 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: bcmath, curl, dom, mbstring, pcntl, sockets, xml
+          extensions: bcmath, curl, dom, mbstring, pcntl, sockets, xml, intl
           coverage: none
-          tools: composer:v2
 
       - name: Install dependencies
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 5
-          max_attempts: 5
-          command: composer update --${{ matrix.stability }} --prefer-dist --no-interaction --no-progress
+        run: |
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
       - name: Execute tests
         run: vendor/bin/phpunit --verbose
