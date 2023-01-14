@@ -34,11 +34,8 @@ final class ConsumeCommand extends WorkCommand
     protected $description = 'Consume messages';
 
 
-    public function handle(): void
+    public function handle(): int|null
     {
-        /*
-         * @var Consumer $consumer
-         */
         $consumer = $this->worker;
 
         $consumer->setContainer($this->laravel);
