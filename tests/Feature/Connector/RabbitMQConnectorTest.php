@@ -4,7 +4,6 @@ namespace iamfarhad\LaravelRabbitMQ\Tests\Feature\Connector;
 
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\FeatureTestCase;
-use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use PhpAmqpLib\Connection\AMQPLazyConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 
@@ -17,8 +16,9 @@ class RabbitMQConnectorTest extends FeatureTestCase
 
     public function testRabbitMQQueueIsLazyConnection(): void
     {
-        config()->set('queue.connections.rabbitmq.hosts.lazy', true);
         $getQueueInstance = $this->app['queue'];
+
+        $this->app['config']->set('queue.connections.rabbitmq.hosts.lazy', true);
 
         $connection = $getQueueInstance->connection('rabbitmq');
 
