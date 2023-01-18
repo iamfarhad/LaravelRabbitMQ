@@ -18,34 +18,6 @@ jobs:
           - laravel: 9.*
             testbench: 7.*
 
-    services:
-      rabbitmq:
-        # 3.8.10 and later versions has enabled TLSv1.3 by default which is not supported by PHP images
-        # TLSv1.3 can be disabled by using configuration file, but not environment variables
-        image: rabbitmq:3.8.9-management
-        ports:
-          - 5671:5671
-          - 5672:5672
-          - 15671:15671
-          - 15672:15672
-        volumes:
-          - ${{ github.workspace }}:/src
-        env:
-          RABBITMQ_SSL_CACERTFILE: /src/tests/certs/ca_certificate.pem
-          RABBITMQ_SSL_CERTFILE: /src/tests/certs/server_certificate.pem
-          RABBITMQ_SSL_KEYFILE: /src/tests/certs/server_key.pem
-          RABBITMQ_SSL_VERIFY: verify_peer
-          RABBITMQ_SSL_FAIL_IF_NO_PEER_CERT: 0
-      proxy:
-        image: ghcr.io/shopify/toxiproxy:2.5.0
-        ports:
-          - 8474:8474
-          - 5673:5673
-    env:
-      TOXIPROXY_HOST: localhost
-      TOXIPROXY_AMQP_TARGET: rabbitmq
-      TOXIPROXY_AMQP_PORT: 5673
-
     name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
 
     steps:
@@ -61,6 +33,15 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: bcmath, curl, dom, mbstring, pcntl, sockets, xml, intl
           coverage: none
+
+      - name: Set up Docker
+        run: |
+          sudo rm /usr/local/bin/docker-compose
+          curl -L https://github.com/docker/compose/releases/download/1.24.1/docker-compose-`uname -s`-`uname -m` > docker-compose
+          chmod +x docker-compose
+          sudo mv docker-compose /usr/local/bin
+      - name: Start Docker container
+        run: docker-compose up -d
 
       - name: Install dependencies
         run: |
