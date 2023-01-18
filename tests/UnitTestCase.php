@@ -10,7 +10,7 @@ use Orchestra\Testbench\TestCase as BaseTestCase;
 
 class UnitTestCase extends BaseTestCase
 {
-    use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+//    use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 
     protected function getPackageProviders($app): array
     {
