@@ -10,7 +10,7 @@ use Orchestra\Testbench\TestCase as BaseTestCase;
 
 class UnitTestCase extends BaseTestCase
 {
-//    use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+    use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 
     protected function getPackageProviders($app): array
     {
@@ -23,7 +23,6 @@ class UnitTestCase extends BaseTestCase
     {
         $config = $this->loadConfig();
 
-        //Config::set($config);
         config()->set('queue.connections.rabbitmq', $config);
     }
 
