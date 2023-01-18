@@ -31,7 +31,7 @@
         </testsuite>
     </testsuites>
     <php>
-        <env name="RABBITMQ_HOST" value="eagle-rmq"/>
+        <env name="RABBITMQ_HOST" value="localhost"/>
         <env name="QUEUE_CONNECTION" value="rabbitmq"/>
         <env name="RABBITMQ_PORT" value="5672"/>
         <env name="PORT_SSL" value="5671"/>
