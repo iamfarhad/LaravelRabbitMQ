@@ -17,6 +17,7 @@ class RabbitMQConnectorTest extends FeatureTestCase
 
     public function testRabbitMQQueueIsLazyConnection(): void
     {
+        config()->set('queue.connections.rabbitmq.hosts.lazy', true);
         $getQueueInstance = $this->app['queue'];
 
         $connection = $getQueueInstance->connection('rabbitmq');
