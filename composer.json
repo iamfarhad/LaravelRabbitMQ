@@ -5,18 +5,18 @@
     "type": "library",
     "require": {
         "php": "^8.1",
-      "illuminate/queue": "^9.0",
-        "php-amqplib/php-amqplib": "^3.4",
-        "illuminate/support": "^9.18"
+        "illuminate/queue": "^9.0|^10.0",
+        "php-amqplib/php-amqplib": "^3.5.1",
+        "illuminate/support": "^9.18|^10.0"
     },
     "require-dev": {
         "ext-json": "*",
-        "phpunit/phpunit": "^9.5",
+        "phpunit/phpunit": "^9.6",
         "orchestra/testbench": "^v7.18.0",
-        "squizlabs/php_codesniffer": "^3.7",
+        "squizlabs/php_codesniffer": "^3",
         "mockery/mockery": "^1.5.1",
         "dg/bypass-finals": "dev-master",
-        "rector/rector": "^0.15.3"
+        "rector/rector": "^0.15.0"
     },
     "autoload": {
         "psr-4": {
