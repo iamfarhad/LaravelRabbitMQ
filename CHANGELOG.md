@@ -1,5 +1,11 @@
 # RabbitMQ CHANGELOG
 
+## v0.0.11 - 2023-02-15
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.10...v0.0.11
+
+- add support for laravel 10
+
 ## v0.0.10 - 2023-01-08
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.9...v0.0.10
