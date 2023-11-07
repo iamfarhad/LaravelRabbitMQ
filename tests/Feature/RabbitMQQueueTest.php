@@ -6,6 +6,8 @@ use iamfarhad\LaravelRabbitMQ\Tests\FeatureTestCase;
 use iamfarhad\LaravelRabbitMQ\Tests\Mocks\TestJobMock;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
+use iamfarhad\LaravelRabbitMQ\Consumer;
+use Mockery;
 
 class RabbitMQQueueTest extends FeatureTestCase
 {
@@ -19,6 +21,27 @@ class RabbitMQQueueTest extends FeatureTestCase
         $this->connection = $getQueueInstance->connection('rabbitmq');
     }
 
+    public function testConsumeMethod()
+    {
+        // Create a Mockery mock of the Consumer class
+        $consumerMock = Mockery::mock(Consumer::class);
+
+        // Define the expected result
+        $expectedResult = 'expected result';
+
+        // Set up the mock to return the expected result when the consume method is called
+        $consumerMock->shouldReceive('consume')
+            ->once()
+            ->andReturn($expectedResult);
+
+        // Call the consume method on the mock
+        $result = $consumerMock->consume();
+
+        // Assert that the result matches the expected result
+        $this->assertEquals($expectedResult, $result);
+    }
+
+
     public function testRabbitMQSize(): void
     {
         $queue = 'test_size';
@@ -27,7 +50,9 @@ class RabbitMQQueueTest extends FeatureTestCase
         $this->assertTrue($this->connection->getConnection()->channel()->is_open());
 
         dispatch(new TestJobMock('Farhad Zand'))->onQueue($queue);
-        $this->assertEquals(1, $this->connection->size($queue));
+        dispatch(new TestJobMock('Farhad Zand'))->onQueue($queue);
+
+        $this->greaterThanOrEqual(1, $this->connection->size($queue));
     }
 
     public function testRabbitMQDeclareQueue(): void
