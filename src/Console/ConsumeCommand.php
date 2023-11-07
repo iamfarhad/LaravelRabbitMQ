@@ -29,6 +29,7 @@ final class ConsumeCommand extends WorkCommand
                             {--consumer-tag}
                             {--prefetch-size=0}
                             {--prefetch-count=1000}
+                            {--num-processes=2 : Number of processes to run in parallel}
                            ';
 
     protected $description = 'Consume messages';
@@ -37,6 +38,7 @@ final class ConsumeCommand extends WorkCommand
     public function handle(): int|null
     {
         $consumer = $this->worker;
+        $numProcesses = $this->option('num-processes');
 
         $consumer->setContainer($this->laravel);
         $consumer->setName($this->option('name'));
@@ -44,8 +46,27 @@ final class ConsumeCommand extends WorkCommand
         $consumer->setMaxPriority((int) $this->option('max-priority'));
         $consumer->setPrefetchSize((int) $this->option('prefetch-size'));
         $consumer->setPrefetchCount((int) $this->option('prefetch-count'));
+        
+        for ($i = 0; $i < $numProcesses; $i++) {
+            $pid = pcntl_fork();
 
-        parent::handle();
+            if ($pid === -1) {
+                // Error handling
+                echo "Could not fork process \n";
+                exit(1);
+            } elseif ($pid === 0) {
+                // This is the child process
+                $this->consume();
+                exit(0);
+            }
+        }
+
+        // Wait for all child processes to finish
+        while (pcntl_waitpid(0, $status) !== -1) {
+            // Handle exit status if needed
+        }
+
+        return 0;;
     }
 
     private function consumerTag(): string
