@@ -37,15 +37,7 @@ final class ConsumeCommand extends WorkCommand
 
     public function handle(): int|null
     {
-        $consumer = $this->worker;
         $numProcesses = $this->option('num-processes');
-
-        $consumer->setContainer($this->laravel);
-        $consumer->setName($this->option('name'));
-        $consumer->setConsumerTag($this->consumerTag());
-        $consumer->setMaxPriority((int) $this->option('max-priority'));
-        $consumer->setPrefetchSize((int) $this->option('prefetch-size'));
-        $consumer->setPrefetchCount((int) $this->option('prefetch-count'));
         
         for ($i = 0; $i < $numProcesses; $i++) {
             $pid = pcntl_fork();
@@ -67,6 +59,21 @@ final class ConsumeCommand extends WorkCommand
         }
 
         return 0;;
+    }
+
+
+    private function consume(): void
+    {
+        $consumer = $this->worker;
+
+        $consumer->setContainer($this->laravel);
+        $consumer->setName($this->option('name'));
+        $consumer->setConsumerTag($this->consumerTag());
+        $consumer->setMaxPriority((int) $this->option('max-priority'));
+        $consumer->setPrefetchSize((int) $this->option('prefetch-size'));
+        $consumer->setPrefetchCount((int) $this->option('prefetch-count'));
+
+        parent::handle();
     }
 
     private function consumerTag(): string
