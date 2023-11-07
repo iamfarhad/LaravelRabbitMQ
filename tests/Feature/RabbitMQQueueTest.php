@@ -30,9 +30,8 @@ class RabbitMQQueueTest extends FeatureTestCase
         $expectedResult = 'expected result';
 
         // Set up the mock to return the expected result when the consume method is called
-        $consumerMock->shouldReceive('consume')
-            ->once()
-            ->andReturn($expectedResult);
+        $consumerMock->expects('consume')
+            ->andReturns($expectedResult);
 
         // Call the consume method on the mock
         $result = $consumerMock->consume();
