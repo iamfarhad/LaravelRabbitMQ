@@ -1,5 +1,11 @@
 # RabbitMQ CHANGELOG
 
+## v0.0.12 - 2023-11-07
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.11...v0.0.12
+
+-- add parallel consume
+
 ## v0.0.11 - 2023-02-15
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.10...v0.0.11
