@@ -34,7 +34,6 @@ final class ConsumeCommand extends WorkCommand
 
     protected $description = 'Consume messages';
 
-
     public function handle(): int|null
     {
         $numProcesses = $this->option('num-processes');
@@ -60,7 +59,6 @@ final class ConsumeCommand extends WorkCommand
 
         return 0;;
     }
-
 
     private function consume(): void
     {
