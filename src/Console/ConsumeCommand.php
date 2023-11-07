@@ -37,7 +37,7 @@ final class ConsumeCommand extends WorkCommand
     public function handle(): int|null
     {
         $numProcesses = $this->option('num-processes');
-        
+
         for ($i = 0; $i < $numProcesses; $i++) {
             $pid = pcntl_fork();
 
@@ -57,7 +57,8 @@ final class ConsumeCommand extends WorkCommand
             // Handle exit status if needed
         }
 
-        return 0;;
+        return 0;
+        ;
     }
 
     private function consume(): void
