@@ -1,5 +1,9 @@
 # RabbitMQ CHANGELOG
 
+## v0.0.13 - 2023-11-08
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.12...v0.0.13
+
 ## v0.0.12 - 2023-11-07
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.11...v0.0.12
