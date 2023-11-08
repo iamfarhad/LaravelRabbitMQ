@@ -4,8 +4,11 @@ namespace iamfarhad\LaravelRabbitMQ\Tests\Feature;
 
 use iamfarhad\LaravelRabbitMQ\Tests\FeatureTestCase;
 use iamfarhad\LaravelRabbitMQ\Tests\Mocks\TestJobMock;
+use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Queue\Events\WorkerStopping;
 use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\Queue;
+use Illuminate\Queue\Queue;
 use iamfarhad\LaravelRabbitMQ\Consumer;
 use Mockery;
 
@@ -21,7 +24,42 @@ class RabbitMQQueueTest extends FeatureTestCase
         $this->connection = $getQueueInstance->connection('rabbitmq');
     }
 
-    public function testConsumeMethod()
+    public function testConnect(): void
+    {
+        $dispatcher = Mockery::mock(Dispatcher::class);
+
+        $dispatcher->expects('listen')
+            ->with(WorkerStopping::class, Mockery::any());
+
+        $connector = new RabbitMQConnector($dispatcher);
+        $config = [
+            'hosts' => [
+                'host' => 'localhost',
+                'port' => 5672,
+                'user' => 'guest',
+                'password' => 'guest',
+                'vhost' => '/',
+                'lazy' => false,
+                'keepalive' => false,
+                'heartbeat' => 60,
+            ],
+            'options' => [
+                'ssl_options' => [
+                    'cafile' => 'path/to/cafile',
+                    'local_cert' => 'path/to/local_cert',
+                    'local_key' => 'path/to/local_key',
+                    'verify_peer' => true,
+                    'passphrase' => 'your_passphrase',
+                ],
+            ],
+        ];
+
+        $queue = $connector->connect($config);
+
+        $this->assertInstanceOf(Queue::class, $queue);
+    }
+
+    public function testConsumeMethod(): void
     {
         // Create a Mockery mock of the Consumer class
         $consumerMock = Mockery::mock(Consumer::class);

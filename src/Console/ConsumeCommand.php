@@ -45,7 +45,9 @@ final class ConsumeCommand extends WorkCommand
                 // Error handling
                 echo "Could not fork process \n";
                 exit(1);
-            } elseif ($pid === 0) {
+            }
+
+            if ($pid === 0) {
                 // This is the child process
                 $this->consume();
                 exit(0);
@@ -53,12 +55,11 @@ final class ConsumeCommand extends WorkCommand
         }
 
         // Wait for all child processes to finish
-        while (pcntl_waitpid(0, $status) !== -1) {
+//        while (pcntl_waitpid(0, $status) !== -1) {
             // Handle exit status if needed
-        }
+//        }
 
         return 0;
-        ;
     }
 
     private function consume(): void
