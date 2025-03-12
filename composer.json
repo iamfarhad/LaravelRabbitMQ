@@ -5,9 +5,9 @@
     "type": "library",
     "require": {
         "php": "^8.1",
-        "illuminate/queue": "^9.0|^10.0|^11.0",
+        "illuminate/queue": "^11.0|^12.0",
         "php-amqplib/php-amqplib": "^3.6.0",
-        "illuminate/support": "^9.18|^10.0|^11.0",
+        "illuminate/support": "^11.0|^12.0",
         "ext-pcntl": "*"
     },
     "require-dev": {
