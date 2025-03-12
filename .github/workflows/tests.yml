@@ -26,7 +26,7 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: bcmath, curl, dom, mbstring, pcntl, sockets, xml, intl
-          coverage: none
+          coverage: xdebug
       - name: Set up Docker
         uses: docker/setup-buildx-action@v3
       - name: Set up Docker Compose
@@ -44,4 +44,4 @@ jobs:
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update --dev
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
       - name: Execute tests
-        run: vendor/bin/phpunit
+        run: vendor/bin/phpunit --no-coverage
