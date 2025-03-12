@@ -11,12 +11,13 @@ jobs:
         php: ['8.2', '8.3']
         os: [ubuntu-latest]
         stability: [prefer-stable]
-        laravel: [11.*, 12.*]
         include:
           - laravel: 11.*
             testbench: 9.*
+            phpunit: ^10.0
           - laravel: 12.*
             testbench: 10.*
+            phpunit: ^11.5.3
     name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -41,7 +42,7 @@ jobs:
         run: docker compose up -d
       - name: Install dependencies
         run: |
-          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update --dev
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" "phpunit/phpunit:${{ matrix.phpunit }}" --no-interaction --no-update --dev
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
       - name: Execute tests
         run: vendor/bin/phpunit --no-coverage
