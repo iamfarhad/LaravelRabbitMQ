@@ -1,56 +1,23 @@
-name: Code style
+name: Check & fix styling
 
-on: [push, pull_request]
-
-permissions:
-  contents: read # Allows checkout
+on: [push]
 
 jobs:
-  phpcs:
-    name: PHPCS
+  php-cs-fixer:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # Use latest major version
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: actions/checkout@v4
         with:
-          php-version: '8.2'
-          extensions: mbstring, xml # Add common extensions often needed by linters/tools
-          tools: composer:v2 # Optionally specify composer version
-        env:
-          COMPOSER_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Recommended for private repos or hitting rate limits
+          ref: ${{ github.head_ref }}
 
-      - name: Get Composer Cache Directory
-        id: composer-cache
-        run: |
-          echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
-
-      - name: Cache Composer dependencies
-        uses: actions/cache@v4 # Use latest major version
+      - name: Run PHP CS Fixer
+        uses: docker://oskarstark/php-cs-fixer-ga
         with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-composer-
+          args: --config=.php_cs.dist.php --allow-risky=yes
 
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress --no-interaction # Use install, add --no-interaction for CI
-
-      # --- IMPORTANT ---
-      # Choose ONE of the following 'Run PHPCS' steps based on your project setup:
-
-      # Option 1: If you have a phpcs.xml or phpcs.xml.dist file in your root
-      - name: Run PHPCS (using config file)
-        run: vendor/bin/phpcs --standard=phpcs.xml.dist # Or phpcs.xml if that's your filename
-        # Optional: Specify paths explicitly if needed:
-        # run: vendor/bin/phpcs --standard=phpcs.xml.dist ./src ./tests
-
-      # Option 2: If you DON'T have a config file and want to use a standard (e.g., PSR12)
-      # - name: Run PHPCS (using PSR12 standard)
-      #   run: vendor/bin/phpcs --standard=PSR12 ./src ./tests # Adjust paths (./src ./tests) as needed!
-
-      # Option 3: Most basic run (relies heavily on defaults - least recommended)
-      # - name: Run PHPCS (basic)
-      #   run: vendor/bin/phpcs
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Fix styling
