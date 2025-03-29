@@ -1,5 +1,12 @@
 # RabbitMQ CHANGELOG
 
+## v0.1.0 - 2025-03-29
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.14...v0.1.0
+
+- added laravel 12 support
+- fix some issues
+
 ## v0.0.14 - 2023-11-08
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.13...v0.0.14
