@@ -10,9 +10,9 @@ use Illuminate\Queue\Events\WorkerStopping;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Contracts\Queue\Queue;
 
-class RabbitMQConnector implements ConnectorInterface
+readonly class RabbitMQConnector implements ConnectorInterface
 {
-    public function __construct(private readonly Dispatcher $dispatcher)
+    public function __construct(private Dispatcher $dispatcher)
     {
     }
 

@@ -59,6 +59,9 @@ final class RabbitMQJob extends Job implements JobContract
     }
 
 
+    /**
+     * @throws JsonException
+     */
     private function convertMessageToFailed(): void
     {
         if ($this->amqpMessage->getExchange() !== 'failed_messages') {
@@ -69,6 +72,7 @@ final class RabbitMQJob extends Job implements JobContract
 
     /**
      * {@inheritdoc}
+     * @throws JsonException
      */
     public function markAsFailed(): void
     {

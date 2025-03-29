@@ -4,6 +4,7 @@ namespace iamfarhad\LaravelRabbitMQ;
 
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
+use iamfarhad\LaravelRabbitMQ\Consumer; // Added missing import
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\ServiceProvider;
 
@@ -17,40 +18,34 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
         );
 
         if ($this->app->runningInConsole()) {
-            $this->app->singleton(
-                'rabbitmq.consumer',
-                function (): Consumer {
-                    $isDownForMaintenance = fn(): bool => $this->app->isDownForMaintenance();
+            $this->app->singleton('rabbitmq.consumer', function ($app): Consumer {
+                $isDownForMaintenance = fn(): bool => $app->isDownForMaintenance();
 
-                    return new Consumer(
-                        $this->app['queue'],
-                        $this->app['events'],
-                        $this->app[ExceptionHandler::class],
-                        $isDownForMaintenance
-                    );
-                }
-            );
+                return new Consumer(
+                    $app['queue'],
+                    $app['events'],
+                    $app[ExceptionHandler::class],
+                    $isDownForMaintenance
+                );
+            });
 
-            $this->app->singleton(
-                ConsumeCommand::class,
-                static fn($app): ConsumeCommand => new ConsumeCommand(
+            $this->app->singleton(ConsumeCommand::class, static function ($app): ConsumeCommand {
+                return new ConsumeCommand(
                     $app['rabbitmq.consumer'],
                     $app['cache.store']
-                )
-            );
+                );
+            });
 
-            $this->commands(
-                [
-                    ConsumeCommand::class,
-                ]
-            );
-        }//end if
+            $this->commands([
+                ConsumeCommand::class,
+            ]);
+        }
     }
 
     public function boot(): void
     {
-        $queue = $this->app['queue'];
-
-        $queue->addConnector('rabbitmq', fn(): RabbitMQConnector => new RabbitMQConnector($this->app['events']));
+        $this->app['queue']->addConnector('rabbitmq', function () {
+            return new RabbitMQConnector($this->app['events']);
+        });
     }
 }

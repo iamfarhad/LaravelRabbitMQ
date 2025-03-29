@@ -65,7 +65,7 @@ class Consumer extends Worker
      * @return int
      * @throws Throwable
      */
-    public function daemon($connectionName, $queue, WorkerOptions $workerOptions)
+    public function daemon($connectionName, $queue, WorkerOptions $options)
     {
         if ($this->supportsAsyncSignals()) {
             $this->listenForSignals();
@@ -102,7 +102,7 @@ class Consumer extends Worker
             false,
             false,
             false,
-            function (AMQPMessage $amqpMessage) use ($connection, $workerOptions, $connectionName, $queue, $jobClass, &$jobsProcessed): void {
+            function (AMQPMessage $amqpMessage) use ($connection, $options, $connectionName, $queue, $jobClass, &$jobsProcessed): void {
                 $job = new $jobClass(
                     $this->container,
                     $connection,
@@ -114,12 +114,12 @@ class Consumer extends Worker
                 $this->currentJob = $job;
 
                 if ($this->supportsAsyncSignals()) {
-                    $this->registerTimeoutHandler($job, $workerOptions);
+                    $this->registerTimeoutHandler($job, $options);
                 }
 
                 ++$jobsProcessed;
 
-                $this->runJob($job, $connectionName, $workerOptions);
+                $this->runJob($job, $connectionName, $options);
 
                 if ($this->supportsAsyncSignals()) {
                     $this->resetTimeoutHandler();
@@ -133,15 +133,15 @@ class Consumer extends Worker
             // Before reserving any jobs, we will make sure this queue is not paused and
             // if it is we will just pause this worker for a given amount of time and
             // make sure we do not need to kill this worker process off completely.
-            if (! $this->daemonShouldRun($workerOptions, $connectionName, $queue)) {
-                $this->pauseWorker($workerOptions, $timestampOfLastQueueRestart);
+            if (! $this->daemonShouldRun($options, $connectionName, $queue)) {
+                $this->pauseWorker($options, $timestampOfLastQueueRestart);
 
                 continue;
             }
 
             // If the daemon should run (not in maintenance mode, etc.), then we can wait for a job.
             try {
-                $this->amqpChannel->wait(null, true, (int) $workerOptions->timeout);
+                $this->amqpChannel->wait(null, true, (int) $options->timeout);
             } catch (AMQPRuntimeException $amqpRuntimeException) {
                 $this->exceptions->report($amqpRuntimeException);
 
@@ -154,14 +154,14 @@ class Consumer extends Worker
 
             // If no job is got off the queue, we will need to sleep the worker.
             if ($this->currentJob === null) {
-                $this->sleep($workerOptions->sleep);
+                $this->sleep($options->sleep);
             }
 
             // Finally, we will check to see if we have exceeded our memory limits or if
             // the queue should restart based on other indications. If so, we'll stop
             // this worker and let whatever is "monitoring" it restart the process.
             $status = $this->stopIfNecessary(
-                $workerOptions,
+                $options,
                 $timestampOfLastQueueRestart,
                 $startTime,
                 $jobsProcessed,
@@ -182,9 +182,9 @@ class Consumer extends Worker
      * @param string $connectionName
      * @param string $queue
      */
-    protected function daemonShouldRun(WorkerOptions $workerOptions, $connectionName, $queue): bool
+    protected function daemonShouldRun(WorkerOptions $options, $connectionName, $queue): bool
     {
-        return !(($this->isDownForMaintenance)() && ! $workerOptions->force) && !$this->paused;
+        return !(($this->isDownForMaintenance)() && ! $options->force) && !$this->paused;
     }
 
 
