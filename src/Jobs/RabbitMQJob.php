@@ -2,18 +2,17 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Jobs;
 
-use Illuminate\Contracts\Queue\Job as JobContract;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Container\Container;
-use PhpAmqpLib\Message\AMQPMessage;
+use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
 use JsonException;
+use PhpAmqpLib\Message\AMQPMessage;
 
 final class RabbitMQJob extends Job implements JobContract
 {
     private readonly array $decoded;
-
 
     public function __construct(
         Container $container,
@@ -22,10 +21,10 @@ final class RabbitMQJob extends Job implements JobContract
         string $connectionName,
         string $queue
     ) {
-        $this->container      = $container;
+        $this->container = $container;
         $this->connectionName = $connectionName;
-        $this->queue          = $queue;
-        $this->decoded        = $this->payload();
+        $this->queue = $queue;
+        $this->decoded = $this->payload();
     }
 
     /**
@@ -57,7 +56,6 @@ final class RabbitMQJob extends Job implements JobContract
 
         return ($laravelAttempts + 1);
     }
-
 
     /**
      * @throws JsonException

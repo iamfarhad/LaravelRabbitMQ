@@ -10,7 +10,6 @@ use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Message\AMQPMessage;
 use Throwable;
-use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 
 class Consumer extends Worker
 {
@@ -28,7 +27,6 @@ class Consumer extends Worker
 
     private object|null $currentJob = null;
 
-
     public function setContainer(Container $container): void
     {
         $this->container = $container;
@@ -44,18 +42,15 @@ class Consumer extends Worker
         $this->maxPriority = $value;
     }
 
-
     public function setPrefetchSize(int $value): void
     {
         $this->prefetchSize = $value;
     }
 
-
     public function setPrefetchCount(int $value): void
     {
         $this->prefetchCount = $value;
     }
-
 
     /**
      * Listen to the given queue in a loop.
@@ -72,7 +67,7 @@ class Consumer extends Worker
         }
 
         $timestampOfLastQueueRestart = $this->getTimestampOfLastQueueRestart();
-        $startTime     = (hrtime(true) / 1e9);
+        $startTime = (hrtime(true) / 1e9);
         $jobsProcessed = 0;
 
         $connection = $this->manager->connection($connectionName);
@@ -86,7 +81,7 @@ class Consumer extends Worker
             null
         );
 
-        $jobClass  = $connection->getJobClass();
+        $jobClass = $connection->getJobClass();
         $arguments = [];
         if ($this->maxPriority !== 0) {
             $arguments['priority'] = [
@@ -184,9 +179,8 @@ class Consumer extends Worker
      */
     protected function daemonShouldRun(WorkerOptions $options, $connectionName, $queue): bool
     {
-        return !(($this->isDownForMaintenance)() && ! $options->force) && !$this->paused;
+        return ! (($this->isDownForMaintenance)() && ! $options->force) && ! $this->paused;
     }
-
 
     public function stop($status = 0, $options = []): int
     {

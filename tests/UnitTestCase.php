@@ -3,14 +3,12 @@
 namespace iamfarhad\LaravelRabbitMQ\Tests;
 
 use iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider;
-use Illuminate\Database\Eloquent\Factories\Factory;
-use Illuminate\Foundation\Application;
 use Mockery;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
 class UnitTestCase extends BaseTestCase
 {
-//    use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+    //    use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 
     protected function getPackageProviders($app): array
     {

@@ -2,13 +2,13 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Connectors;
 
-use Illuminate\Queue\Connectors\ConnectorInterface;
-use PhpAmqpLib\Connection\AMQPConnectionFactory;
-use PhpAmqpLib\Connection\AMQPConnectionConfig;
-use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Queue\Events\WorkerStopping;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Queue\Queue;
+use Illuminate\Queue\Connectors\ConnectorInterface;
+use Illuminate\Queue\Events\WorkerStopping;
+use PhpAmqpLib\Connection\AMQPConnectionConfig;
+use PhpAmqpLib\Connection\AMQPConnectionFactory;
 
 readonly class RabbitMQConnector implements ConnectorInterface
 {
@@ -39,12 +39,12 @@ readonly class RabbitMQConnector implements ConnectorInterface
         $amqpConnectionConfig->setSslPassPhrase(config('queue.connections.rabbitmq.options.ssl_options.passphrase'));
 
         // Create AMQP Connection
-        $connection   = AMQPConnectionFactory::create($amqpConnectionConfig);
+        $connection = AMQPConnectionFactory::create($amqpConnectionConfig);
         $defaultQueue = config('queue.connections.rabbitmq.queue');
 
         $rabbitQueue = new RabbitQueue($connection, $defaultQueue);
 
-        $this->dispatcher->listen(WorkerStopping::class, fn() => $rabbitQueue->close());
+        $this->dispatcher->listen(WorkerStopping::class, fn () => $rabbitQueue->close());
 
         return $rabbitQueue;
     }

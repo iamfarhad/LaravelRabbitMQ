@@ -2,14 +2,13 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Tests\Feature;
 
+use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
+use iamfarhad\LaravelRabbitMQ\Consumer;
 use iamfarhad\LaravelRabbitMQ\Tests\FeatureTestCase;
 use iamfarhad\LaravelRabbitMQ\Tests\Mocks\TestJobMock;
-use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Queue\Events\WorkerStopping;
-use Illuminate\Support\Facades\Bus;
 use Illuminate\Queue\Queue;
-use iamfarhad\LaravelRabbitMQ\Consumer;
 use Mockery;
 
 class RabbitMQQueueTest extends FeatureTestCase
@@ -77,7 +76,6 @@ class RabbitMQQueueTest extends FeatureTestCase
         // Assert that the result matches the expected result
         $this->assertEquals($expectedResult, $result);
     }
-
 
     public function testRabbitMQSize(): void
     {

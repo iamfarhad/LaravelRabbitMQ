@@ -2,19 +2,15 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Tests;
 
+use DG\BypassFinals;
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
-use Illuminate\Queue\Connectors\ConnectorInterface;
-use Illuminate\Contracts\Queue\Queue as QueueContract;
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Queue\Events\WorkerStopping;
-use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Queue;
+use Illuminate\Queue\Connectors\ConnectorInterface;
+use Mockery;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPConnectionConfig;
-use Mockery;
 use PhpAmqpLib\Connection\AMQPConnectionFactory;
-use DG\BypassFinals;
 
 class RabbitMQConnectorTest extends UnitTestCase
 {
@@ -28,12 +24,11 @@ class RabbitMQConnectorTest extends UnitTestCase
 
     private Dispatcher $dispatcherMock;
 
-
     public function setUp(): void
     {
-        $this->rabbitQueueMock           = Mockery::mock(RabbitQueue::class);
+        $this->rabbitQueueMock = Mockery::mock(RabbitQueue::class);
         $this->AMQPConnectionFactoryMock = Mockery::mock(AMQPConnectionFactory::class);
-        $this->dispatcherMock            = Mockery::mock(Dispatcher::class);
+        $this->dispatcherMock = Mockery::mock(Dispatcher::class);
 
         $this->AMQPConnectionConfigMock = new AMQPConnectionConfig();
 
@@ -44,12 +39,10 @@ class RabbitMQConnectorTest extends UnitTestCase
         parent::setUp();
     }
 
-
     public function testRabbitmqConnectorImplementsConnectorInterface(): void
     {
         $this->assertInstanceOf(ConnectorInterface::class, $this->rabbitMQConnector);
     }
-
 
     public function testRabbitmqConnectorConnectWithNoConfig(): void
     {

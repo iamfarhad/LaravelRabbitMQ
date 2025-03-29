@@ -4,7 +4,7 @@ namespace iamfarhad\LaravelRabbitMQ;
 
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
-use iamfarhad\LaravelRabbitMQ\Consumer; // Added missing import
+// Added missing import
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\ServiceProvider;
 
@@ -19,7 +19,7 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->app->singleton('rabbitmq.consumer', function ($app): Consumer {
-                $isDownForMaintenance = fn(): bool => $app->isDownForMaintenance();
+                $isDownForMaintenance = fn (): bool => $app->isDownForMaintenance();
 
                 return new Consumer(
                     $app['queue'],

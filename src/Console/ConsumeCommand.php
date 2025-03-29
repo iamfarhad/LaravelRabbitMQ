@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Console;
 
-use Symfony\Component\Console\Attribute\AsCommand;
 use Illuminate\Queue\Console\WorkCommand;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'rabbitmq:consume')]
 final class ConsumeCommand extends WorkCommand
@@ -56,6 +56,7 @@ final class ConsumeCommand extends WorkCommand
 
         if ($numProcesses < 1) {
             $this->error('Number of processes must be at least 1');
+
             return 1;
         }
 
@@ -65,8 +66,9 @@ final class ConsumeCommand extends WorkCommand
         }
 
         // Check if pcntl extension is available
-        if (!extension_loaded('pcntl')) {
+        if (! extension_loaded('pcntl')) {
             $this->error('The pcntl extension is required for parallel processing');
+
             return 1;
         }
 
@@ -77,6 +79,7 @@ final class ConsumeCommand extends WorkCommand
 
             if ($pid === -1) {
                 $this->error("Failed to fork process $i");
+
                 continue;
             }
 
@@ -126,7 +129,7 @@ final class ConsumeCommand extends WorkCommand
         try {
             $consumer = $this->worker;
 
-            if (!$consumer) {
+            if (! $consumer) {
                 throw new RuntimeException('Worker instance not initialized');
             }
 
@@ -147,6 +150,7 @@ final class ConsumeCommand extends WorkCommand
             return parent::handle() ?? 0;
         } catch (\Throwable $e) {
             $this->error($e->getMessage());
+
             return 1;
         }
     }

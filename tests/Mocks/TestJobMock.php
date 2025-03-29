@@ -17,7 +17,6 @@ class TestJobMock implements ShouldQueue
 
     private string $name;
 
-
     public function __construct(string $name = 'farhad zand')
     {
         $this->name = $name;
