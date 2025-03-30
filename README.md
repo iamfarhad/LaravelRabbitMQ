@@ -18,7 +18,7 @@ Only the latest version will get new features. Bug fixes will be provided using 
 
 | Package Version | Laravel Version | PHP Version | Bug Fixes Until   |                                                                                     |
 |-----------------|-----------------|-------------|-------------------|-------------------------------------------------------------------------------------|
-| 0               | 9, 10           | ^8.1        | August 26th, 2023 | [Documentation](https://github.com/iamfarhad/LaravelRabbitMQ/blob/master/README.md) |
+| 0               | 10, 11           | ^8.2        | August 26th, 2025 | [Documentation](https://github.com/iamfarhad/LaravelRabbitMQ/blob/master/README.md) |
 
 this is experimental version of the package
 
