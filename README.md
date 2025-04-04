@@ -62,6 +62,11 @@ Add connection to config/queue.php:
                 ],
                 'queue'       => [
                     'job' => \iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class,
+                    'qos' => [
+                        'prefetch_size' => 0,
+                        'prefetch_count' => 10,
+                        'global' => false
+                    ]
                 ],
             ],
         ]

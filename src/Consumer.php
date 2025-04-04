@@ -17,11 +17,7 @@ class Consumer extends Worker
 
     private string $consumerTag;
 
-    private int $prefetchSize;
-
     private int $maxPriority;
-
-    private int $prefetchCount;
 
     private AMQPChannel $amqpChannel;
 
@@ -40,16 +36,6 @@ class Consumer extends Worker
     public function setMaxPriority(int $value): void
     {
         $this->maxPriority = $value;
-    }
-
-    public function setPrefetchSize(int $value): void
-    {
-        $this->prefetchSize = $value;
-    }
-
-    public function setPrefetchCount(int $value): void
-    {
-        $this->prefetchCount = $value;
     }
 
     /**
@@ -75,12 +61,6 @@ class Consumer extends Worker
 
         $this->amqpChannel = $connection->getChannel();
 
-        $this->amqpChannel->basic_qos(
-            $this->prefetchSize,
-            $this->prefetchCount,
-            null
-        );
-
         $jobClass = $connection->getJobClass();
         $arguments = [];
         if ($this->maxPriority !== 0) {
@@ -89,6 +69,16 @@ class Consumer extends Worker
                 $this->maxPriority,
             ];
         }
+
+        $prefetchSize = config('queue.connections.rabbitmq.queue.prefetch_size') ?? 0;
+        $prefetchCount = config('queue.connections.rabbitmq.queue.prefetch_count') ?? 10;
+        $global = config('queue.connections.rabbitmq.queue.global') ?? false;
+
+        $this->amqpChannel->basic_qos(
+            $prefetchSize,
+            $prefetchCount,
+            $global
+        );
 
         $this->amqpChannel->basic_consume(
             $queue,

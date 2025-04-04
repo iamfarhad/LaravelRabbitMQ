@@ -4,7 +4,6 @@ namespace iamfarhad\LaravelRabbitMQ;
 
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
-// Added missing import
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\ServiceProvider;
 

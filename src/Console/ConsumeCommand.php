@@ -35,8 +35,6 @@ final class ConsumeCommand extends WorkCommand
                             {--rest=0 : Number of seconds to rest between jobs}
                             {--max-priority=null : Maximum priority level to consume}
                             {--consumer-tag}
-                            {--prefetch-size=0}
-                            {--prefetch-count=1000}
                             {--num-processes=2 : Number of processes to run in parallel}
                            ';
 
@@ -136,10 +134,6 @@ final class ConsumeCommand extends WorkCommand
             $consumer->setContainer($this->laravel);
             $consumer->setName($this->option('name'));
             $consumer->setConsumerTag($this->generateConsumerTag());
-
-            // Initialize prefetch size and count first
-            $consumer->setPrefetchSize((int) $this->option('prefetch-size'));
-            $consumer->setPrefetchCount((int) $this->option('prefetch-count'));
 
             // Only set max priority if it's provided and not null
             $maxPriority = $this->option('max-priority');
