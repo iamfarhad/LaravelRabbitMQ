@@ -1,5 +1,21 @@
 # RabbitMQ CHANGELOG
 
+## v0.1.1 - 2025-04-04
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.1.0...v0.1.1
+
+### Added
+
+- Made RabbitMQ `basic_qos` settings (prefetch_size, prefetch_count, global) configurable via the `queue.php` or `RabbitMQConnectionConfig.php` configuration file.
+
+### Changed
+
+- Updated documentation to reflect the new `basic_qos` configuration options.
+
+### Fixed
+
+- N/A
+
 ## v0.1.0 - 2025-03-29
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.0.14...v0.1.0
