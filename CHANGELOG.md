@@ -1,5 +1,17 @@
 # RabbitMQ CHANGELOG
 
+## v0.1.2 - 2025-04-17
+
+### What's Changed
+
+* feat: make isSecure flag configurable by @algins in https://github.com/iamfarhad/LaravelRabbitMQ/pull/6
+
+### New Contributors
+
+* @algins made their first contribution in https://github.com/iamfarhad/LaravelRabbitMQ/pull/6
+
+**Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.1.1...v0.1.2
+
 ## v0.1.1 - 2025-04-04
 
 **Full Changelog**: https://github.com/iamfarhad/LaravelRabbitMQ/compare/v0.1.0...v0.1.1
