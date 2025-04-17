@@ -30,13 +30,16 @@ readonly class RabbitMQConnector implements ConnectorInterface
         $amqpConnectionConfig->setIsLazy(config('queue.connections.rabbitmq.hosts.lazy'));
         $amqpConnectionConfig->setKeepalive(config('queue.connections.rabbitmq.hosts.keepalive'));
         $amqpConnectionConfig->setHeartbeat(config('queue.connections.rabbitmq.hosts.heartbeat'));
+        $amqpConnectionConfig->setIsSecure(config('queue.connections.rabbitmq.hosts.secure'));
 
         // set SSL Options
-        $amqpConnectionConfig->setSslCaCert(config('queue.connections.rabbitmq.options.ssl_options.cafile'));
-        $amqpConnectionConfig->setSslCert(config('queue.connections.rabbitmq.options.ssl_options.local_cert'));
-        $amqpConnectionConfig->setSslKey(config('queue.connections.rabbitmq.options.ssl_options.local_key'));
-        $amqpConnectionConfig->setSslVerify(config('queue.connections.rabbitmq.options.ssl_options.verify_peer'));
-        $amqpConnectionConfig->setSslPassPhrase(config('queue.connections.rabbitmq.options.ssl_options.passphrase'));
+        if ($amqpConnectionConfig->isSecure()) {
+            $amqpConnectionConfig->setSslCaCert(config('queue.connections.rabbitmq.options.ssl_options.cafile'));
+            $amqpConnectionConfig->setSslCert(config('queue.connections.rabbitmq.options.ssl_options.local_cert'));
+            $amqpConnectionConfig->setSslKey(config('queue.connections.rabbitmq.options.ssl_options.local_key'));
+            $amqpConnectionConfig->setSslVerify(config('queue.connections.rabbitmq.options.ssl_options.verify_peer'));
+            $amqpConnectionConfig->setSslPassPhrase(config('queue.connections.rabbitmq.options.ssl_options.passphrase'));
+        }
 
         // Create AMQP Connection
         $connection = AMQPConnectionFactory::create($amqpConnectionConfig);
