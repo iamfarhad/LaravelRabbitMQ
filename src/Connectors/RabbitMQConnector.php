@@ -30,6 +30,7 @@ readonly class RabbitMQConnector implements ConnectorInterface
         $amqpConnectionConfig->setIsLazy(config('queue.connections.rabbitmq.hosts.lazy'));
         $amqpConnectionConfig->setKeepalive(config('queue.connections.rabbitmq.hosts.keepalive'));
         $amqpConnectionConfig->setHeartbeat(config('queue.connections.rabbitmq.hosts.heartbeat'));
+        $amqpConnectionConfig->setIsSecure(config('queue.connections.rabbitmq.hosts.secure'));
 
         // set SSL Options
         $amqpConnectionConfig->setSslCaCert(config('queue.connections.rabbitmq.options.ssl_options.cafile'));
