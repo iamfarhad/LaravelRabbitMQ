@@ -50,6 +50,7 @@ Add connection to config/queue.php:
                 'lazy'      => env('RABBITMQ_LAZY_CONNECTION', true),
                 'keepalive' => env('RABBITMQ_KEEPALIVE_CONNECTION', false),
                 'heartbeat' => env('RABBITMQ_HEARTBEAT_CONNECTION', 0),
+                'secure'    => env('RABBITMQ_SECURE', false),
             ],
 
             'options' => [
