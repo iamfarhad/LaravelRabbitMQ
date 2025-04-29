@@ -17,7 +17,7 @@ jobs:
             phpunit: ^10.0
           - laravel: 12.*
             testbench: 10.*
-            phpunit: ^11.0
+            phpunit: ^10.0
     name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
     steps:
       - name: Checkout code
