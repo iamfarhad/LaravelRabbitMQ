@@ -46,6 +46,11 @@ jobs:
           }
       - name: Start Docker container
         run: docker compose up -d
+      - name: Clear vendor + composer cache
+        run: |
+          rm -rf vendor composer.lock
+          composer clear-cache
+      
       - name: Install dependencies
         run: |
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" "phpunit/phpunit:${{ matrix.phpunit }}" --no-interaction --no-update --dev
