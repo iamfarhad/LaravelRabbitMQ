@@ -12,9 +12,24 @@ jobs:
         os: [ubuntu-latest]
         stability: [prefer-stable]
         include:
+          # Laravel 11 with PHP 8.2, 8.3, 8.4
           - php: '8.2'
             laravel: 11.*
             testbench: 9.*
+            phpunit: ^10.5
+          - php: '8.3'
+            laravel: 11.*
+            testbench: 9.*
+            phpunit: ^12.0
+          - php: '8.4'
+            laravel: 11.*
+            testbench: 9.*
+            phpunit: ^12.1
+    
+          # Laravel 12 with PHP 8.2, 8.3, 8.4
+          - php: '8.2'
+            laravel: 12.*
+            testbench: 10.*
             phpunit: ^10.5
           - php: '8.3'
             laravel: 12.*
