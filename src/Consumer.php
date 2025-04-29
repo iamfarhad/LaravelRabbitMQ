@@ -6,6 +6,7 @@ use Exception;
 use Illuminate\Container\Container;
 use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
+use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Message\AMQPMessage;
@@ -57,6 +58,12 @@ class Consumer extends Worker
         $jobsProcessed = 0;
 
         $connection = $this->manager->connection($connectionName);
+        
+        // Check if the connection is a RabbitQueue instance
+        if (!$connection instanceof RabbitQueue) {
+            throw new \RuntimeException('Connection must be an instance of RabbitQueue for RabbitMQ Consumer');
+        }
+        
         $connection->declareQueue($queue);
 
         $this->amqpChannel = $connection->getChannel();

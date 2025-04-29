@@ -408,7 +408,7 @@ class RabbitQueue extends Queue implements QueueContract
             throw new Exception(sprintf('Class %s must extend: %s', $job, RabbitMQJob::class));
         }
 
-        return $job;
+        return (string) $job;
     }
 
     /**
@@ -454,7 +454,8 @@ class RabbitQueue extends Queue implements QueueContract
                         $exception->getMessage()
                     )
                 );
-                $this->amqpChannel = null; // Force channel re-creation
+                // Recreate channel instead of setting to null
+                $this->amqpChannel = $this->connection->channel();
                 $attempts++;
                 if ($attempts < $maxRetries) {
                     usleep($retryDelay * 1000); // Wait before retrying
