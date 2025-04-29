@@ -12,12 +12,18 @@ jobs:
         os: [ubuntu-latest]
         stability: [prefer-stable]
         include:
-          - laravel: 11.*
+          - php: '8.2'
+            laravel: 11.*
             testbench: 9.*
             phpunit: ^9.5
-          - laravel: 12.*
+          - php: '8.3'
+            laravel: 12.*
             testbench: 10.*
             phpunit: ^11.5.3
+          - php: '8.4'
+            laravel: 12.*
+            testbench: 10.*
+            phpunit: ^12.0
     name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
     steps:
       - name: Checkout code
