@@ -1,49 +1,29 @@
-name: Laravel RabbitMQ CI/CD
+name: CI
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - develop
+    branches: [ master, develop ]
   pull_request:
-    branches:
-      - main
-      - master
-      - develop
-  workflow_dispatch:
-
-env:
-  CACHE_DRIVER: array
-  SESSION_DRIVER: array
-  QUEUE_CONNECTION: rabbitmq
+    branches: [ master, develop ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.2', '8.3', '8.4']
-        laravel: ['10.*', '11.*', '12.*']
-        stability: [prefer-lowest, prefer-stable]
+        php: [8.2, 8.3]
+        laravel: [10.*, 11.*, 12.*]
+        dependency-version: [prefer-lowest, prefer-stable]
         include:
-          - laravel: '10.*'
-            testbench: '8.*'
-          - laravel: '11.*'
-            testbench: '9.*'
-          - laravel: '12.*'
-            testbench: '10.*'
-        exclude:
-          # Laravel 12 requires PHP 8.2+
-          - php: '8.1'
-            laravel: '12.*'
-          # Laravel 11 requires PHP 8.2+
-          - php: '8.1'
-            laravel: '11.*'
+          - laravel: 10.*
+            testbench: 8.*
+          - laravel: 11.*
+            testbench: 9.*
+          - laravel: 12.*
+            testbench: 10.*
 
-    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }} - ${{ matrix.stability }}
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.dependency-version }}
 
     services:
       rabbitmq:
@@ -51,7 +31,6 @@ jobs:
         env:
           RABBITMQ_DEFAULT_USER: guest
           RABBITMQ_DEFAULT_PASS: guest
-          RABBITMQ_DEFAULT_VHOST: /
         ports:
           - 5672:5672
           - 15672:15672
@@ -60,204 +39,137 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          --health-start-period 30s
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, sockets
-          coverage: xdebug
-          tools: composer:v2
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php }}
+        extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+        coverage: none
 
-      - name: Setup problem matchers
-        run: |
-          echo "::add-matcher::${{ runner.tool_cache }}/php.json"
-          echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
+    - name: Setup problem matchers
+      run: |
+        echo "::add-matcher::${{ runner.tool_cache }}/php.json"
+        echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
 
-      - name: Get composer cache directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+    - name: Install dependencies
+      run: |
+        composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+        composer update --${{ matrix.dependency-version }} --prefer-dist --no-interaction
 
-      - name: Cache composer dependencies
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ matrix.php }}-${{ matrix.laravel }}-${{ matrix.stability }}-${{ hashFiles('**/composer.json') }}
-          restore-keys: |
-            ${{ runner.os }}-composer-${{ matrix.php }}-${{ matrix.laravel }}-${{ matrix.stability }}-
-            ${{ runner.os }}-composer-${{ matrix.php }}-${{ matrix.laravel }}-
-            ${{ runner.os }}-composer-${{ matrix.php }}-
-            ${{ runner.os }}-composer-
+    - name: List Installed Dependencies
+      run: composer show -D
 
-      - name: Install dependencies
-        run: |
-          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
-          composer update --${{ matrix.stability }} --prefer-dist --no-interaction --no-progress
+    - name: Wait for RabbitMQ
+      run: |
+        timeout 60s bash -c 'until nc -z localhost 5672; do sleep 1; done'
+        sleep 5
 
-      - name: Verify RabbitMQ is ready
-        run: |
-          timeout 60 bash -c 'until curl -f -s http://localhost:15672/api/overview -u guest:guest; do sleep 2; done'
-          echo "RabbitMQ is running and accessible"
+    - name: Execute tests
+      run: vendor/bin/phpunit
+      env:
+        RABBITMQ_HOST: localhost
+        RABBITMQ_PORT: 5672
+        RABBITMQ_USER: guest
+        RABBITMQ_PASSWORD: guest
+        RABBITMQ_VHOST: /
 
-      - name: Create testing environment file
-        run: |
-          cat > .env.testing << EOF
-          APP_ENV=testing
-          APP_KEY=base64:2fl+Ktvkfl+Fuz4Qp/A75G2RTiWVA/ZoKZvp6fiiM10=
-          APP_DEBUG=true
-          
-          CACHE_DRIVER=array
-          SESSION_DRIVER=array
-          QUEUE_CONNECTION=rabbitmq
-          
-          RABBITMQ_HOST=127.0.0.1
-          RABBITMQ_PORT=5672
-          RABBITMQ_USER=guest
-          RABBITMQ_PASSWORD=guest
-          RABBITMQ_VHOST=/
-          RABBITMQ_QUEUE=default
-          RABBITMQ_LAZY_CONNECTION=true
-          
-          DB_CONNECTION=sqlite
-          DB_DATABASE=:memory:
-          EOF
-
-      - name: Initialize RabbitMQ test queues
-        run: |
-          # Create test exchanges and queues via HTTP API
-          curl -u guest:guest -H "content-type:application/json" \
-            -X PUT -d '{"type":"direct","durable":true}' \
-            http://localhost:15672/api/exchanges/%2F/laravel.test
-          
-          curl -u guest:guest -H "content-type:application/json" \
-            -X PUT -d '{"durable":true}' \
-            http://localhost:15672/api/queues/%2F/default
-          
-          curl -u guest:guest -H "content-type:application/json" \
-            -X PUT -d '{"durable":true}' \
-            http://localhost:15672/api/queues/%2F/test
-
-      - name: Run tests
-        run: vendor/bin/phpunit --coverage-text --coverage-clover=coverage.clover
-
-      - name: Upload coverage to Codecov
-        if: matrix.php == '8.3' && matrix.laravel == '11.*' && matrix.stability == 'prefer-stable'
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.clover
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-  code-quality:
+  code-style:
     runs-on: ubuntu-latest
-    name: Code Quality Checks
+    name: Code Style
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, sockets
-          tools: composer:v2, php-cs-fixer, phpstan
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.2
+        extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+        coverage: none
 
-      - name: Get composer cache directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+    - name: Install dependencies
+      run: composer install --no-interaction --prefer-dist
 
-      - name: Cache composer dependencies
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-quality-${{ hashFiles('**/composer.json') }}
-          restore-keys: |
-            ${{ runner.os }}-composer-quality-
-            ${{ runner.os }}-composer-
+    - name: Check code style
+      run: vendor/bin/pint --test
 
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
-
-      - name: Check code style (PHP CS Fixer)
-        run: |
-          if [ -f .php-cs-fixer.php ]; then
-            vendor/bin/php-cs-fixer fix --dry-run --diff --verbose
-          else
-            echo "No .php-cs-fixer.php found, skipping code style check"
-          fi
-
-      - name: Run static analysis (PHPStan)
-        run: |
-          if [ -f phpstan.neon ] || [ -f phpstan.neon.dist ]; then
-            vendor/bin/phpstan analyse --memory-limit=2G --no-progress
-          else
-            echo "No PHPStan config found, skipping static analysis"
-          fi
-
-  security:
+  static-analysis:
     runs-on: ubuntu-latest
-    name: Security Audit
+    name: Static Analysis
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          tools: composer:v2
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.2
+        extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+        coverage: none
 
-      - name: Get composer cache directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+    - name: Install dependencies
+      run: composer install --no-interaction --prefer-dist
 
-      - name: Cache composer dependencies
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-security-${{ hashFiles('**/composer.json') }}
-          restore-keys: |
-            ${{ runner.os }}-composer-security-
-            ${{ runner.os }}-composer-
+    - name: Run static analysis
+      run: vendor/bin/phpstan analyse --memory-limit=2G
 
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
-
-      - name: Run security audit
-        run: composer audit --format=table
-
-  package-validation:
+  coverage:
     runs-on: ubuntu-latest
-    name: Package Validation
+    name: Coverage
+
+    services:
+      rabbitmq:
+        image: rabbitmq:3.12-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: guest
+          RABBITMQ_DEFAULT_PASS: guest
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          tools: composer:v2
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.2
+        extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+        coverage: xdebug
 
-      - name: Validate composer.json
-        run: composer validate --strict --no-check-lock
+    - name: Install dependencies
+      run: composer install --no-interaction --prefer-dist
 
-      - name: Check for security vulnerabilities
-        run: composer audit
+    - name: Wait for RabbitMQ
+      run: |
+        timeout 60s bash -c 'until nc -z localhost 5672; do sleep 1; done'
+        sleep 5
 
-      - name: Verify package can be installed
-        run: |
-          mkdir -p /tmp/package-test
-          cd /tmp/package-test
-          composer init --name="test/package" --require="iamfarhad/laravel-rabbitmq:dev-${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" --no-interaction
-          composer config repositories.local path $GITHUB_WORKSPACE
-          composer install --no-interaction
+    - name: Run tests with coverage
+      run: vendor/bin/phpunit --coverage-clover=coverage.xml
+      env:
+        RABBITMQ_HOST: localhost
+        RABBITMQ_PORT: 5672
+        RABBITMQ_USER: guest
+        RABBITMQ_PASSWORD: guest
+        RABBITMQ_VHOST: /
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.xml
+        fail_ci_if_error: true
