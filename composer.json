@@ -1,23 +1,26 @@
 {
     "name": "iamfarhad/laravel-rabbitmq",
-    "description": "the best laravel rabbitmq package",
-    "keywords": ["rabbitmq", "message", "queue", "laravel", "job"],
+    "description": "RabbitMQ driver for Laravel Queue with advanced message queuing capabilities",
+    "keywords": ["laravel", "rabbitmq", "queue", "amqp", "message-queue"],
+    "license": "MIT",
     "type": "library",
+    "authors": [
+        {
+            "name": "Farhad Farahani",
+            "email": "iamfarhad@gmail.com"
+        }
+    ],
     "require": {
         "php": "^8.2",
-        "illuminate/queue": "^11.0|^12.0",
-        "php-amqplib/php-amqplib": "^v3.7.3",
-        "illuminate/support": "^11.0|^12.0",
-        "ext-pcntl": "*"
+        "laravel/framework": "^10.0|^11.0|^12.0",
+        "php-amqplib/php-amqplib": "^3.2"
     },
     "require-dev": {
-        "ext-json": "*",
         "orchestra/testbench": "^8.0|^9.0|^10.0",
-        "phpunit/phpunit": "^10.5|^11.5.3",
-        "squizlabs/php_codesniffer": "^3.12",
-        "mockery/mockery": "^1.7.0",
-        "dg/bypass-finals": "dev-master",
-        "rector/rector": "^0.15.25"
+        "phpunit/phpunit": "^10.0|^11.0",
+        "mockery/mockery": "^1.6.0",
+        "phpstan/phpstan": "^1.10",
+        "laravel/pint": "^1.0"
     },
     "autoload": {
         "psr-4": {
@@ -36,13 +39,17 @@
             ]
         }
     },
-    "license": "MIT",
-    "authors": [
-        {
-            "name": "Farhad Zand",
-            "email": "farhad.pd@gmail.com"
-        }
-    ],
-    "minimum-stability": "dev",
+    "scripts": {
+        "test": "phpunit",
+        "test-coverage": "phpunit --coverage-html coverage",
+        "format": "pint",
+        "analyse": "phpstan analyse"
+    },
+    "config": {
+        "sort-packages": true,
+        "preferred-install": "dist",
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable",
     "prefer-stable": true
 }
