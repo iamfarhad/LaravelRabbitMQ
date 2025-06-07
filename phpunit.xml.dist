@@ -1,37 +1,82 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
-        backupGlobals="false"
-        bootstrap="vendor/autoload.php"
-        colors="true"
-        processIsolation="false"
-        stopOnFailure="false"
-        executionOrder="random"
-        failOnWarning="false"
-        failOnRisky="true"
-        failOnEmptyTestSuite="true"
-        beStrictAboutOutputDuringTests="true"
-        verbose="true">
-    <coverage>
-        <include>
-            <directory suffix=".php">src/</directory>
-        </include>
-        <report>
-            <html outputDirectory="build/coverage"/>
-        </report>
-    </coverage>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         processIsolation="false"
+         stopOnFailure="false"
+         executionOrder="random"
+         failOnWarning="true"
+         failOnRisky="true"
+         failOnEmptyTestSuite="true"
+         beStrictAboutOutputDuringTests="true"
+         cacheDirectory=".phpunit.cache"
+         backupStaticProperties="false">
+    
     <testsuites>
-        <testsuite name="Package Test Suite">
-            <directory suffix="Test.php">./tests/</directory>
+        <testsuite name="Unit">
+            <directory suffix="Test.php">./tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory suffix="Test.php">./tests/Feature</directory>
         </testsuite>
     </testsuites>
+    
+    <coverage>
+        <report>
+            <html outputDirectory="build/coverage"/>
+            <text outputFile="build/coverage.txt"/>
+            <clover outputFile="build/logs/clover.xml"/>
+        </report>
+    </coverage>
+    
+    <source>
+        <include>
+            <directory suffix=".php">./src</directory>
+        </include>
+        <exclude>
+            <directory>./vendor</directory>
+            <directory>./tests</directory>
+            <file>./src/config/queue.php</file>
+        </exclude>
+    </source>
+    
     <php>
-        <env name="RABBITMQ_HOST" value="localhost"/>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:2fl+Ktvkfl+Fuz4Qp/A75G2RTiWVA/ZoKZvp6fiiM10="/>
+        <env name="APP_DEBUG" value="true"/>
+        
+        <env name="CACHE_DRIVER" value="array"/>
+        <env name="SESSION_DRIVER" value="array"/>
         <env name="QUEUE_CONNECTION" value="rabbitmq"/>
+        
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        
+        <env name="RABBITMQ_HOST" value="127.0.0.1"/>
         <env name="RABBITMQ_PORT" value="5672"/>
-        <env name="PORT_SSL" value="5671"/>
-        <env name="RABBITMQ_SSL_CAFILE" value="./tests/files/rootCA.pem"/>
+        <env name="RABBITMQ_USER" value="guest"/>
+        <env name="RABBITMQ_PASSWORD" value="guest"/>
+        <env name="RABBITMQ_VHOST" value="/"/>
+        <env name="RABBITMQ_QUEUE" value="default"/>
+        <env name="RABBITMQ_LAZY_CONNECTION" value="true"/>
+        <env name="RABBITMQ_KEEPALIVE_CONNECTION" value="false"/>
+        <env name="RABBITMQ_HEARTBEAT_CONNECTION" value="0"/>
+        <env name="RABBITMQ_SECURE" value="false"/>
+        
+        <env name="PCNTL_ENABLED" value="true"/>
+        
+        <!-- Disable Xdebug's step debugger for performance -->
+        <env name="XDEBUG_MODE" value="coverage"/>
+        
+        <!-- Reduce memory usage for tests -->
+        <ini name="memory_limit" value="512M"/>
+        
+        <!-- Set timezone for consistent test results -->
+        <ini name="date.timezone" value="UTC"/>
     </php>
-    <logging/>
+    
+    <logging>
+        <junit outputFile="build/logs/junit.xml"/>
+    </logging>
 </phpunit>
