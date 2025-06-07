@@ -1,34 +1,18 @@
-name: run-tests
+name: Tests
 
 on:
   push:
-    branches: [main, master]
+    branches: [master, main]
   pull_request:
-    branches: [main, master]
+    branches: [master, main]
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [ubuntu-latest]
-        php: [8.2, 8.3]
-        laravel: [10.*, 11.*, 12.*]
-        stability: [prefer-lowest, prefer-stable]
-        include:
-          - laravel: 12.*
-            testbench: 9.*
-          - laravel: 11.*
-            testbench: 9.*
-          - laravel: 10.*
-            testbench: 8.*
-
-    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
-
+    runs-on: ubuntu-latest
+    
     services:
       rabbitmq:
-        image: rabbitmq:3.8-management-alpine
+        image: rabbitmq:3.12-management
         env:
           RABBITMQ_DEFAULT_USER: guest
           RABBITMQ_DEFAULT_PASS: guest
@@ -41,6 +25,26 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    strategy:
+      fail-fast: true
+      matrix:
+        php: [8.2, 8.3]
+        laravel: [11.*, 12.*]
+        stability: [prefer-lowest, prefer-stable]
+        include:
+          - laravel: 11.*
+            testbench: ^9.0
+            carbon: ^2.63|^3.0
+          - laravel: 12.*
+            testbench: ^10.1
+            carbon: ^2.63|^3.0
+        exclude:
+          - laravel: 12.*
+            php: 8.2
+            stability: prefer-lowest
+
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -49,7 +53,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, pcntl
           coverage: none
 
       - name: Setup problem matchers
@@ -59,17 +63,78 @@ jobs:
 
       - name: Install dependencies
         run: |
-          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" "nesbot/carbon:${{ matrix.carbon }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
       - name: List Installed Dependencies
         run: composer show -D
 
+      - name: Wait for RabbitMQ
+        run: |
+          timeout 60 bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/localhost/5672; do sleep 1; done'
+          echo "RabbitMQ is ready"
+
       - name: Execute tests
-        run: vendor/bin/phpunit
+        run: vendor/bin/phpunit --verbose
         env:
           RABBITMQ_HOST: localhost
           RABBITMQ_PORT: 5672
           RABBITMQ_USER: guest
           RABBITMQ_PASSWORD: guest
           RABBITMQ_VHOST: /
+
+  coverage:
+    runs-on: ubuntu-latest
+    
+    services:
+      rabbitmq:
+        image: rabbitmq:3.12-management
+        env:
+          RABBITMQ_DEFAULT_USER: guest
+          RABBITMQ_DEFAULT_PASS: guest
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    name: Coverage
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, pcntl
+          coverage: xdebug
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:^12.0" "orchestra/testbench:^10.1" "nesbot/carbon:^2.63|^3.0" --no-interaction --no-update
+          composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Wait for RabbitMQ
+        run: |
+          timeout 60 bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/localhost/5672; do sleep 1; done'
+          echo "RabbitMQ is ready"
+
+      - name: Execute tests with coverage
+        run: vendor/bin/phpunit --coverage-text --coverage-clover=coverage.clover
+        env:
+          RABBITMQ_HOST: localhost
+          RABBITMQ_PORT: 5672
+          RABBITMQ_USER: guest
+          RABBITMQ_PASSWORD: guest
+          RABBITMQ_VHOST: /
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.clover
+          fail_ci_if_error: false
