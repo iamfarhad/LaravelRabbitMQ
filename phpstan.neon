@@ -1,0 +1,16 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - src
+    
+    level: 8
+    
+    ignoreErrors:
+        - '#Call to an undefined method [a-zA-Z0-9\\_]+::basic_[a-z_]+\(\)#'
+        - '#Access to an undefined property PhpAmqpLib\\Connection\\[a-zA-Z]+::\$[a-zA-Z_]+#'
+    
+    checkMissingIterableValueType: false
+    checkGenericClassInNonGenericObjectType: false
+    reportUnmatchedIgnoredErrors: false
