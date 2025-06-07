@@ -126,16 +126,10 @@ jobs:
           echo "RabbitMQ is ready"
 
       - name: Execute tests with coverage
-        run: vendor/bin/phpunit --coverage-text --coverage-clover=coverage.clover
+        run: vendor/bin/phpunit
         env:
           RABBITMQ_HOST: localhost
           RABBITMQ_PORT: 5672
           RABBITMQ_USER: guest
           RABBITMQ_PASSWORD: guest
           RABBITMQ_VHOST: /
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.clover
-          fail_ci_if_error: false
