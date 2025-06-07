@@ -2,11 +2,10 @@
 
 namespace Tests\Feature;
 
+use iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithFaker;
 use Illuminate\Support\Facades\Queue;
 use Orchestra\Testbench\TestCase;
-use iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider;
 use Tests\Jobs\TestJob;
 
 class RabbitMQQueueTest extends TestCase
@@ -46,7 +45,7 @@ class RabbitMQQueueTest extends TestCase
                     'keepalive' => env('RABBITMQ_KEEPALIVE_CONNECTION', false),
                     'heartbeat' => env('RABBITMQ_HEARTBEAT_CONNECTION', 0),
                     'secure' => env('RABBITMQ_SECURE', false),
-                ]
+                ],
             ],
             'options' => [
                 'ssl_options' => [
@@ -61,8 +60,8 @@ class RabbitMQQueueTest extends TestCase
                     'qos' => [
                         'prefetch_size' => 0,
                         'prefetch_count' => 10,
-                        'global' => false
-                    ]
+                        'global' => false,
+                    ],
                 ],
             ],
         ]);
@@ -78,6 +77,7 @@ class RabbitMQQueueTest extends TestCase
                 $connection = Queue::connection('rabbitmq');
                 // Try to get queue size to test connection
                 $connection->size('test-connection');
+
                 break;
             } catch (\Exception $e) {
                 $attempt++;
@@ -142,7 +142,7 @@ class RabbitMQQueueTest extends TestCase
             json_encode([
                 'job' => get_class($job),
                 'data' => $job,
-                'priority' => $priority
+                'priority' => $priority,
             ]),
             'priority-queue'
         );
