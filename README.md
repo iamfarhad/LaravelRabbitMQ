@@ -25,7 +25,7 @@ A robust and production-ready RabbitMQ queue driver implementation for Laravel, 
 - **Connection Management** - Lazy connections, keepalive, and heartbeat support
 
 ### Developer Experience
-- **Comprehensive Testing** - Extensive test suite with Pest framework
+- **Comprehensive Testing** - Extensive test suite with PHPUnit framework
 - **Modern Architecture** - Clean separation of concerns with contracts and dedicated components
 - **Docker Ready** - Optimized for containerized environments
 - **Monitoring Support** - Integration-ready for monitoring and observability tools
@@ -486,7 +486,7 @@ public function failed(\Throwable $exception)
 
 ## Testing
 
-This package includes comprehensive testing with Pest:
+This package includes comprehensive testing with PHPUnit:
 
 ### Running Tests
 
@@ -494,14 +494,11 @@ This package includes comprehensive testing with Pest:
 # Run all tests
 composer test
 
-# Run tests with HTML coverage report
-composer test-coverage
+# Run unit tests only
+composer test:unit
 
-# Run tests with Clover coverage report (for CI)
-composer test-coverage-clover
-
-# Run tests in parallel
-composer test-parallel
+# Run feature tests only
+composer test:feature
 
 # Format code
 composer format

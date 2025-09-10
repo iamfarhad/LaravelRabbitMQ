@@ -35,8 +35,8 @@ jobs:
           RABBITMQ_DEFAULT_PASS: secret
           RABBITMQ_DEFAULT_VHOST: b2b-field
         ports:
-          - 5673:5672
-          - 15673:15672
+          - 5672:5672
+          - 15672:15672
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
@@ -59,18 +59,16 @@ jobs:
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
-      - name: Clear Pest cache
+      - name: Clear PHPUnit cache
         run: |
-          rm -rf vendor/pestphp/pest/cache
           rm -rf .phpunit.cache
-          rm -rf .pest.cache
-          find . -name "*.cache" -type f -delete 2>/dev/null || true
+          rm -rf .phpunit.result.cache
 
       - name: Wait for RabbitMQ
         run: |
           echo "Waiting for RabbitMQ to be ready..."
           for i in {1..30}; do
-            if curl -f http://localhost:15673/api/overview -u laravel:secret >/dev/null 2>&1; then
+            if curl -f http://localhost:15672/api/overview -u laravel:secret >/dev/null 2>&1; then
               echo "RabbitMQ is ready!"
               break
             fi
@@ -81,14 +79,14 @@ jobs:
       - name: Verify RabbitMQ
         run: |
           echo "RabbitMQ Status:"
-          curl -u laravel:secret http://localhost:15673/api/overview 2>/dev/null | jq -r '.rabbitmq_version // "Unable to get version"'
+          curl -u laravel:secret http://localhost:15672/api/overview 2>/dev/null | jq -r '.rabbitmq_version // "Unable to get version"'
           echo "Available vhosts:"
-          curl -u laravel:secret http://localhost:15673/api/vhosts 2>/dev/null | jq -r '.[].name // "Unable to get vhosts"'
+          curl -u laravel:secret http://localhost:15672/api/vhosts 2>/dev/null | jq -r '.[].name // "Unable to get vhosts"'
 
       - name: Run tests
         env:
           RABBITMQ_HOST: 127.0.0.1
-          RABBITMQ_PORT: 5673
+          RABBITMQ_PORT: 5672
           RABBITMQ_USER: laravel
           RABBITMQ_PASSWORD: secret
           RABBITMQ_VHOST: b2b-field

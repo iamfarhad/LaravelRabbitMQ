@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Simple test runner using PHPUnit directly to avoid Pest configuration issues
+# Simple test runner using PHPUnit
 echo "Running LaravelRabbitMQ Tests..."
 
 # Set environment variables
@@ -12,11 +12,19 @@ export MAIL_MAILER=array
 export QUEUE_CONNECTION=sync
 export SESSION_DRIVER=array
 export TELESCOPE_ENABLED=false
-export RABBITMQ_HOST=rabbitmq
-export RABBITMQ_PORT=5672
-export RABBITMQ_USER=laravel
-export RABBITMQ_PASSWORD=secret
-export RABBITMQ_VHOST=b2b-field
+
+# RabbitMQ configuration - use environment variables if set, otherwise use defaults
+export RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+export RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+export RABBITMQ_USER=${RABBITMQ_USER:-laravel}
+export RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-secret}
+export RABBITMQ_VHOST=${RABBITMQ_VHOST:-b2b-field}
+
+echo "RabbitMQ Configuration:"
+echo "  Host: $RABBITMQ_HOST"
+echo "  Port: $RABBITMQ_PORT"
+echo "  User: $RABBITMQ_USER"
+echo "  VHost: $RABBITMQ_VHOST"
 
 echo "Checking AMQP extension..."
 if php -m | grep -q amqp; then
@@ -27,8 +35,7 @@ fi
 
 # Clear any cache files that might cause issues
 rm -rf .phpunit.cache
-rm -rf .pest.cache
-find . -name "*.cache" -type f -delete 2>/dev/null || true
+rm -rf .phpunit.result.cache
 
 # Run tests with PHPUnit directly
 echo "Running Unit Tests..."
