@@ -1,66 +1,107 @@
 <?php
 
+declare(strict_types=1);
+
 use iamfarhad\LaravelRabbitMQ\Consumer;
+use iamfarhad\LaravelRabbitMQ\Tests\TestCase;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Queue\QueueManager;
-use Mockery as m;
-
-afterEach(function () {
-    Mockery::close();
-});
 
 // Test only the basic Consumer class functionality without RabbitMQ connections
 // Connection-dependent tests are covered in Feature tests
+class ConsumerTest extends TestCase
+{
+    protected function tearDown(): void
+    {
+        \Mockery::close();
+        parent::tearDown();
+    }
 
-it('creates consumer instance', function () {
-    $manager = Mockery::mock(QueueManager::class);
-    $events = Mockery::mock(Dispatcher::class);
-    $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    public function testCreatesConsumerInstance(): void
+    {
+        $manager = \Mockery::mock(QueueManager::class);
+        $events = \Mockery::mock(Dispatcher::class);
+        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $isDownForMaintenance = fn() => false;
 
-    $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
+        $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
-    expect($consumer)->toBeInstanceOf(Consumer::class);
-});
+        $this->assertInstanceOf(Consumer::class, $consumer);
+    }
 
-it('sets container without error', function () {
-    $manager = Mockery::mock(QueueManager::class);
-    $events = Mockery::mock(Dispatcher::class);
-    $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    public function testSetsContainerWithoutError(): void
+    {
+        $manager = \Mockery::mock(QueueManager::class);
+        $events = \Mockery::mock(Dispatcher::class);
+        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $isDownForMaintenance = fn() => false;
 
-    $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
-    $container = new Container;
+        $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
+        $container = new Container();
 
-    $consumer->setContainer($container);
+        $consumer->setContainer($container);
 
-    expect(true)->toBeTrue(); // Method doesn't throw exception
-});
+        $this->assertTrue(true); // Method doesn't throw exception
+    }
 
-it('sets consumer tag without error', function () {
-    $manager = Mockery::mock(QueueManager::class);
-    $events = Mockery::mock(Dispatcher::class);
-    $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    public function testSetsConsumerTagWithoutError(): void
+    {
+        $manager = \Mockery::mock(QueueManager::class);
+        $events = \Mockery::mock(Dispatcher::class);
+        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $isDownForMaintenance = fn() => false;
 
-    $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
+        $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
-    $consumer->setConsumerTag('test-consumer-tag');
+        $consumer->setConsumerTag('test-consumer-tag');
 
-    expect(true)->toBeTrue(); // Method doesn't throw exception
-});
+        $this->assertTrue(true); // Method doesn't throw exception
+    }
 
-it('sets max priority without error', function () {
-    $manager = Mockery::mock(QueueManager::class);
-    $events = Mockery::mock(Dispatcher::class);
-    $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    public function testSetsMaxPriorityWithoutError(): void
+    {
+        $manager = \Mockery::mock(QueueManager::class);
+        $events = \Mockery::mock(Dispatcher::class);
+        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $isDownForMaintenance = fn() => false;
 
-    $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
+        $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
-    $consumer->setMaxPriority(10);
+        $consumer->setMaxPriority(10);
 
-    expect(true)->toBeTrue(); // Method doesn't throw exception
-});
+        $this->assertTrue(true); // Method doesn't throw exception
+    }
+
+    public function testConsumerHandlesMaintenanceMode(): void
+    {
+        $manager = \Mockery::mock(QueueManager::class);
+        $events = \Mockery::mock(Dispatcher::class);
+        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $isDownForMaintenance = fn() => true; // Simulate maintenance mode
+
+        $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
+
+        $this->assertInstanceOf(Consumer::class, $consumer);
+    }
+
+    public function testConsumerAcceptsCallableForMaintenanceCheck(): void
+    {
+        $manager = \Mockery::mock(QueueManager::class);
+        $events = \Mockery::mock(Dispatcher::class);
+        $exceptions = \Mockery::mock(ExceptionHandler::class);
+
+        $maintenanceCallCount = 0;
+        $isDownForMaintenance = function () use (&$maintenanceCallCount) {
+            $maintenanceCallCount++;
+            return false;
+        };
+
+        $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
+
+        $this->assertInstanceOf(Consumer::class, $consumer);
+        // The callable should be stored and ready to use
+        $this->assertTrue(is_callable($isDownForMaintenance));
+    }
+}

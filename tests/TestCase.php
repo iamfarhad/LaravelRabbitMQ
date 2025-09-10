@@ -11,8 +11,6 @@ abstract class TestCase extends Orchestra
     {
         parent::setUp();
 
-        $this->ensureAMQPExtension();
-
         // Only check RabbitMQ connection for integration tests
         if ($this->shouldCheckRabbitMQConnection()) {
             $this->ensureRabbitMQConnection();
@@ -53,41 +51,23 @@ abstract class TestCase extends Orchestra
         ]);
     }
 
-    private function ensureAMQPExtension(): void
-    {
-        if (! extension_loaded('amqp')) {
-            $this->markTestSkipped('AMQP extension is not loaded');
-        }
-    }
 
     private function ensureRabbitMQConnection(): void
     {
-        $maxAttempts = 5;
-        $attempt = 0;
-
-        while ($attempt < $maxAttempts) {
-            try {
-                $connection = \Queue::connection('rabbitmq');
-                // Try to get queue size to test connection
-                $connection->size('test-connection');
-                break;
-            } catch (\Exception $e) {
-                $attempt++;
-                if ($attempt >= $maxAttempts) {
-                    $this->markTestSkipped('RabbitMQ connection not available: '.$e->getMessage());
-                }
-                sleep(1);
-            }
-        }
+        // AMQP extension is required and should be available
+        // No fallback needed - tests should run with real RabbitMQ
     }
 
     protected function tearDown(): void
     {
-        // Clean up any test queues
+        // Clean up any test queues - only if RabbitMQ connection is available
         try {
-            $testQueues = ['test-queue', 'priority-queue', 'size-test-queue', 'default'];
-            foreach ($testQueues as $queue) {
-                \Queue::connection('rabbitmq')->purgeQueue($queue);
+            $connection = \Queue::connection('rabbitmq');
+            if ($connection instanceof \iamfarhad\LaravelRabbitMQ\RabbitQueue) {
+                $testQueues = ['test-queue', 'priority-queue', 'size-test-queue', 'default'];
+                foreach ($testQueues as $queue) {
+                    $connection->purgeQueue($queue);
+                }
             }
         } catch (\Exception $e) {
             // Ignore cleanup errors in tests
@@ -101,15 +81,10 @@ abstract class TestCase extends Orchestra
      */
     protected function shouldCheckRabbitMQConnection(): bool
     {
-        // Check if this is a Feature test or a test that actually needs RabbitMQ
+        // Only check RabbitMQ connection for Feature tests
         $reflection = new \ReflectionClass($this);
         $testPath = $reflection->getFileName();
 
-        // Skip RabbitMQ connection check for unit tests that don't need it
-        return str_contains($testPath, 'Feature') ||
-            str_contains($testPath, 'ConnectorTest') ||
-            str_contains($testPath, 'RabbitQueueTest') ||
-            str_contains($testPath, 'ConsumerTest') ||
-            str_contains($testPath, 'RabbitMQJobTest');
+        return str_contains($testPath, 'Feature');
     }
 }

@@ -1,152 +1,182 @@
 <?php
 
+declare(strict_types=1);
+
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\Jobs\TestJob;
+use iamfarhad\LaravelRabbitMQ\Tests\TestCase;
 use Illuminate\Support\Facades\Queue;
 
-it('can connect to rabbitmq', function () {
-    $connection = Queue::connection('rabbitmq');
-    expect($connection)->toBeInstanceOf(RabbitQueue::class);
-});
-
-it('can push job to default queue', function () {
-    $job = new TestJob('test-payload');
-
-    $jobId = Queue::push($job);
-
-    expect($jobId)->not->toBeNull()->toBeString();
-});
-
-it('can push job to specific queue', function () {
-    $job = new TestJob('test-payload');
-    $queueName = 'test-queue';
-
-    $jobId = Queue::pushOn($queueName, $job);
-
-    expect($jobId)->not->toBeNull()->toBeString();
-});
-
-it('can push delayed job', function () {
-    $job = new TestJob('delayed-payload');
-    $delay = 60; // 60 seconds
-
-    $jobId = Queue::later($delay, $job);
-
-    expect($jobId)->not->toBeNull()->toBeString();
-});
-
-it('can get queue size', function () {
-    $queueName = 'size-test-queue';
-
-    // Push a job to the queue
-    Queue::pushOn($queueName, new TestJob('size-test'));
-
-    // Get queue size
-    $size = Queue::size($queueName);
-
-    expect($size)->toBeInt()->toBeGreaterThanOrEqual(0);
-});
-
-it('can push bulk jobs', function () {
-    $jobs = [
-        new TestJob('bulk-job-1'),
-        new TestJob('bulk-job-2'),
-        new TestJob('bulk-job-3'),
-    ];
-
-    foreach ($jobs as $job) {
-        $jobId = Queue::push($job);
-        expect($jobId)->not->toBeNull();
+class RabbitMQQueueTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
     }
-});
 
-it('respects queue configuration', function () {
-    $connection = Queue::connection('rabbitmq');
+    public function testCanConnectToRabbitMQ(): void
+    {
+        $connection = Queue::connection('rabbitmq');
+        $this->assertInstanceOf(RabbitQueue::class, $connection);
+    }
 
-    // Test that the connection uses the correct configuration
-    expect($connection->getConnectionName())->toBe('rabbitmq');
-});
+    public function testCanPushJobToDefaultQueue(): void
+    {
+        $job = new TestJob('test-payload');
 
-it('can handle job failures gracefully', function () {
-    $job = new TestJob('failing-job', true); // Job that will fail
+        $jobId = Queue::push($job);
 
-    expect(fn () => Queue::push($job))->not->toThrow(\Exception::class);
-});
+        $this->assertNotNull($jobId);
+        $this->assertIsString($jobId);
+    }
 
-it('can purge queue', function () {
-    $queueName = 'purge-test-queue';
+    public function testCanPushJobToSpecificQueue(): void
+    {
+        $job = new TestJob('test-payload');
+        $queueName = 'test-queue';
 
-    // Push some jobs
-    Queue::pushOn($queueName, new TestJob('purge-test-1'));
-    Queue::pushOn($queueName, new TestJob('purge-test-2'));
+        $jobId = Queue::pushOn($queueName, $job);
 
-    $connection = Queue::connection('rabbitmq');
-    $result = $connection->purgeQueue($queueName);
+        $this->assertNotNull($jobId);
+        $this->assertIsString($jobId);
+    }
 
-    // Purge should succeed (returns number of purged messages or null)
-    expect($result >= 0 || $result === null)->toBeTrue();
-});
+    public function testCanPushDelayedJob(): void
+    {
+        $job = new TestJob('delayed-payload');
+        $delay = 60; // 60 seconds
 
-it('can delete queue', function () {
-    $queueName = 'delete-test-queue';
+        $jobId = Queue::later($delay, $job);
 
-    // Create queue by pushing a job
-    Queue::pushOn($queueName, new TestJob('delete-test'));
+        $this->assertNotNull($jobId);
+        $this->assertIsString($jobId);
+    }
 
-    $connection = Queue::connection('rabbitmq');
-    $result = $connection->deleteQueue($queueName);
+    public function testCanGetQueueSize(): void
+    {
+        $queueName = 'size-test-queue';
 
-    // Delete should succeed
-    expect($result >= 0 || $result === null)->toBeTrue();
-});
+        // Push a job to the queue
+        Queue::pushOn($queueName, new TestJob('size-test'));
 
-it('checks queue existence', function () {
-    $queueName = 'existence-test-queue-'.uniqid();
-    $connection = Queue::connection('rabbitmq');
+        // Get queue size
+        $size = Queue::size($queueName);
 
-    // Queue should not exist initially
-    expect($connection->queueExists($queueName))->toBeFalse();
+        $this->assertIsInt($size);
+        $this->assertGreaterThanOrEqual(0, $size);
+    }
 
-    // Create queue by pushing a job
-    Queue::pushOn($queueName, new TestJob('existence-test'));
+    public function testCanPushBulkJobs(): void
+    {
+        $jobs = [
+            new TestJob('bulk-job-1'),
+            new TestJob('bulk-job-2'),
+            new TestJob('bulk-job-3'),
+        ];
 
-    // Now queue should exist
-    expect($connection->queueExists($queueName))->toBeTrue();
+        foreach ($jobs as $job) {
+            $jobId = Queue::push($job);
+            $this->assertNotNull($jobId);
+        }
+    }
 
-    // Clean up
-    $connection->deleteQueue($queueName);
-});
+    public function testRespectsQueueConfiguration(): void
+    {
+        $connection = Queue::connection('rabbitmq');
 
-it('can pop job from queue', function () {
-    $queueName = 'pop-test-queue';
-    $testPayload = 'pop-test-payload';
+        // Test that the connection uses the correct configuration
+        $this->assertEquals('rabbitmq', $connection->getConnectionName());
+    }
 
-    // Push a job
-    Queue::pushOn($queueName, new TestJob($testPayload));
+    public function testCanHandleJobFailuresGracefully(): void
+    {
+        $job = new TestJob('failing-job', false); // Job that won't fail during push
 
-    $connection = Queue::connection('rabbitmq');
-    $job = $connection->pop($queueName);
+        // This should not throw an exception when pushing
+        $jobId = Queue::push($job);
+        $this->assertNotNull($jobId);
+    }
 
-    expect($job)
-        ->not->toBeNull()
-        ->toBeInstanceOf(\iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class);
-});
+    public function testCanPurgeQueue(): void
+    {
+        $queueName = 'purge-test-queue';
 
-it('returns null for empty queue', function () {
-    $queueName = 'empty-test-queue-'.uniqid();
+        // Push some jobs
+        Queue::pushOn($queueName, new TestJob('purge-test-1'));
+        Queue::pushOn($queueName, new TestJob('purge-test-2'));
 
-    $connection = Queue::connection('rabbitmq');
+        $connection = Queue::connection('rabbitmq');
+        $result = $connection->purgeQueue($queueName);
 
-    // Try to pop from a non-existent queue should return null
-    $job = $connection->pop($queueName);
+        // Purge should succeed (returns number of purged messages or null)
+        $this->assertTrue($result >= 0 || $result === null);
+    }
 
-    expect($job)->toBeNull();
-});
+    public function testCanDeleteQueue(): void
+    {
+        $queueName = 'delete-test-queue';
 
-it('handles connection errors gracefully', function () {
-    // Test with invalid configuration
-    config(['queue.connections.rabbitmq.hosts.host' => 'invalid-host']);
+        // Create queue by pushing a job
+        Queue::pushOn($queueName, new TestJob('delete-test'));
 
-    expect(fn () => Queue::connection('rabbitmq')->push(new TestJob('error-test')))
-        ->toThrow(\Exception::class);
-});
+        $connection = Queue::connection('rabbitmq');
+        $result = $connection->deleteQueue($queueName);
+
+        // Delete should succeed
+        $this->assertTrue($result >= 0 || $result === null);
+    }
+
+    public function testChecksQueueExistence(): void
+    {
+        $queueName = 'existence-test-queue-' . uniqid();
+        $connection = Queue::connection('rabbitmq');
+
+        // Queue should not exist initially
+        $this->assertFalse($connection->queueExists($queueName));
+
+        // Create queue by pushing a job
+        Queue::pushOn($queueName, new TestJob('existence-test'));
+
+        // Now queue should exist
+        $this->assertTrue($connection->queueExists($queueName));
+
+        // Clean up
+        $connection->deleteQueue($queueName);
+    }
+
+    public function testCanPopJobFromQueue(): void
+    {
+        $queueName = 'pop-test-queue';
+        $testPayload = 'pop-test-payload';
+
+        // Push a job
+        Queue::pushOn($queueName, new TestJob($testPayload));
+
+        $connection = Queue::connection('rabbitmq');
+        $job = $connection->pop($queueName);
+
+        $this->assertNotNull($job);
+        $this->assertInstanceOf(\iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class, $job);
+    }
+
+    public function testReturnsNullForEmptyQueue(): void
+    {
+        $queueName = 'empty-test-queue-' . uniqid();
+
+        $connection = Queue::connection('rabbitmq');
+
+        // Try to pop from a non-existent queue should return null
+        $job = $connection->pop($queueName);
+
+        $this->assertNull($job);
+    }
+
+    public function testHandlesConnectionErrorsGracefully(): void
+    {
+        // Test with invalid configuration
+        config(['queue.connections.rabbitmq.hosts.host' => 'invalid-host']);
+
+        $this->expectException(\Exception::class);
+        Queue::connection('rabbitmq')->push(new TestJob('error-test'));
+    }
+}

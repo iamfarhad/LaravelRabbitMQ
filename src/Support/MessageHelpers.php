@@ -16,11 +16,13 @@ class MessageHelpers
 
     /**
      * Extract correlation ID from payload.
-     *
-     * @throws JsonException
      */
-    public static function extractCorrelationId(string $payload): ?string
+    public static function extractCorrelationId(?string $payload): ?string
     {
+        if ($payload === null || $payload === '') {
+            return null;
+        }
+
         try {
             $data = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
 

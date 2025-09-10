@@ -1,50 +1,133 @@
 <?php
 
+declare(strict_types=1);
+
 use iamfarhad\LaravelRabbitMQ\Support\MessageHelpers;
+use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 
-it('generates correlation id', function () {
-    $correlationId = MessageHelpers::generateCorrelationId();
+class MessageHelpersTest extends UnitTestCase
+{
+    public function testGeneratesCorrelationId(): void
+    {
+        $correlationId = MessageHelpers::generateCorrelationId();
 
-    expect($correlationId)->toBeString()->not->toBeEmpty();
-});
+        $this->assertIsString($correlationId);
+        $this->assertNotEmpty($correlationId);
 
-it('extracts correlation id from valid payload', function () {
-    $id = 'test-id-123';
-    $payload = json_encode(['id' => $id, 'job' => 'TestJob']);
+        // Test that it generates unique IDs
+        $correlationId2 = MessageHelpers::generateCorrelationId();
+        $this->assertNotEquals($correlationId, $correlationId2);
+    }
 
-    $extractedId = MessageHelpers::extractCorrelationId($payload);
+    public function testExtractsCorrelationIdFromValidPayload(): void
+    {
+        $id = 'test-id-123';
+        $payload = json_encode(['id' => $id, 'job' => 'TestJob']);
 
-    expect($extractedId)->toBe($id);
-});
+        $extractedId = MessageHelpers::extractCorrelationId($payload);
 
-it('returns null for payload without id', function () {
-    $payload = json_encode(['job' => 'TestJob', 'data' => []]);
+        $this->assertEquals($id, $extractedId);
+    }
 
-    $extractedId = MessageHelpers::extractCorrelationId($payload);
+    public function testReturnsNullForPayloadWithoutId(): void
+    {
+        $payload = json_encode(['job' => 'TestJob', 'data' => []]);
 
-    expect($extractedId)->toBeNull();
-});
+        $extractedId = MessageHelpers::extractCorrelationId($payload);
 
-it('returns null for invalid json', function () {
-    $payload = 'invalid-json';
+        $this->assertNull($extractedId);
+    }
 
-    $extractedId = MessageHelpers::extractCorrelationId($payload);
+    public function testReturnsNullForInvalidJson(): void
+    {
+        $payload = 'invalid-json';
 
-    expect($extractedId)->toBeNull();
-});
+        $extractedId = MessageHelpers::extractCorrelationId($payload);
 
-it('validates valid json', function () {
-    $payload = json_encode(['job' => 'TestJob']);
+        $this->assertNull($extractedId);
+    }
 
-    $isValid = MessageHelpers::isValidJson($payload);
+    public function testValidatesValidJson(): void
+    {
+        $payload = json_encode(['job' => 'TestJob']);
 
-    expect($isValid)->toBeTrue();
-});
+        $isValid = MessageHelpers::isValidJson($payload);
 
-it('invalidates invalid json', function () {
-    $payload = 'invalid-json';
+        $this->assertTrue($isValid);
+    }
 
-    $isValid = MessageHelpers::isValidJson($payload);
+    public function testInvalidatesInvalidJson(): void
+    {
+        $payload = 'invalid-json';
 
-    expect($isValid)->toBeFalse();
-});
+        $isValid = MessageHelpers::isValidJson($payload);
+
+        $this->assertFalse($isValid);
+    }
+
+    public function testCorrelationIdFormat(): void
+    {
+        $correlationId = MessageHelpers::generateCorrelationId();
+
+        // Should be a valid UUID-like format or similar
+        $this->assertMatchesRegularExpression('/^[a-f0-9\-]+$/i', $correlationId);
+        $this->assertGreaterThan(10, strlen($correlationId)); // Should be reasonably long
+    }
+
+    public function testExtractsCorrelationIdWithNestedData(): void
+    {
+        $id = 'nested-test-456';
+        $payload = json_encode([
+            'id' => $id,
+            'job' => 'TestJob',
+            'data' => [
+                'nested' => ['deep' => 'value'],
+                'array' => [1, 2, 3]
+            ]
+        ]);
+
+        $extractedId = MessageHelpers::extractCorrelationId($payload);
+
+        $this->assertEquals($id, $extractedId);
+    }
+
+    public function testHandlesNullPayloadGracefully(): void
+    {
+        $extractedId = MessageHelpers::extractCorrelationId(null);
+        $this->assertNull($extractedId);
+    }
+
+    public function testHandlesEmptyPayloadGracefully(): void
+    {
+        $extractedId = MessageHelpers::extractCorrelationId('');
+        $this->assertNull($extractedId);
+    }
+
+    public function testValidatesComplexValidJson(): void
+    {
+        $complexJson = json_encode([
+            'level1' => [
+                'level2' => [
+                    'level3' => 'deep value'
+                ]
+            ],
+            'array' => [1, 2, 3, ['nested' => true]],
+            'null_value' => null,
+            'boolean' => false,
+            'number' => 42.5
+        ]);
+
+        $this->assertTrue(MessageHelpers::isValidJson($complexJson));
+    }
+
+    public function testValidatesEmptyJsonObjects(): void
+    {
+        $this->assertTrue(MessageHelpers::isValidJson('{}'));
+        $this->assertTrue(MessageHelpers::isValidJson('[]'));
+        $this->assertTrue(MessageHelpers::isValidJson('null'));
+        $this->assertTrue(MessageHelpers::isValidJson('true'));
+        $this->assertTrue(MessageHelpers::isValidJson('false'));
+        $this->assertTrue(MessageHelpers::isValidJson('"string"'));
+        $this->assertTrue(MessageHelpers::isValidJson('123'));
+    }
+}
