@@ -55,7 +55,7 @@ This package follows modern PHP architecture principles with clear separation of
 
 ## Requirements
 
-- **PHP 8.2+** - Modern PHP with improved performance and type safety
+- **PHP 8.2+** - Modern PHP with improved performance and type safety (including PHP 8.3 and 8.4)
 - **Laravel 11.x or 12.x** - Latest Laravel versions with enhanced queue features
 - **RabbitMQ Server 3.8+** - Production-ready message broker
 - **ext-amqp** - Native AMQP extension for optimal performance
@@ -65,7 +65,7 @@ This package follows modern PHP architecture principles with clear separation of
 
 | Package Version | Laravel Version | PHP Version | Bug Fixes Until   |
 |-----------------|-----------------|-------------|-------------------|
-| 1.0.x           | 11.x, 12.x      | ^8.2        | December 2025     |
+| 1.0.x           | 11.x, 12.x      | 8.2, 8.3, 8.4 | December 2025     |
 
 ## Installation
 

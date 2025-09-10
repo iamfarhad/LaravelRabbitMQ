@@ -13,16 +13,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        php: [8.2, 8.3]
-        laravel: [11.*]
+        php: [8.2, 8.3, 8.4]
+        laravel: [11.*, 12.*]
         stability: [prefer-lowest, prefer-stable]
         include:
           - laravel: 11.*
             testbench: 9.*
-            carbon: ^2.63
+          - laravel: 12.*
+            testbench: 10.*
+        exclude:
+          - php: 8.4
+            stability: prefer-lowest
 
-    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
+    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }} - ${{ matrix.stability }}
 
     services:
       rabbitmq:
@@ -32,14 +35,14 @@ jobs:
           RABBITMQ_DEFAULT_PASS: secret
           RABBITMQ_DEFAULT_VHOST: b2b-field
         ports:
-          - 5672:5672
-          - 15672:15672
+          - 5673:5672
+          - 15673:15672
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-          --health-start-period 20s
+          --health-start-period 30s
 
     steps:
       - name: Checkout code
@@ -52,56 +55,52 @@ jobs:
           extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, amqp
           coverage: none
 
-      - name: Setup problem matchers
-        run: |
-          echo "::add-matcher::${{ runner.tool_cache }}/php.json"
-          echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
-
       - name: Install dependencies
         run: |
-          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" "nesbot/carbon:${{ matrix.carbon }}" --no-interaction --no-update
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
-
-      - name: List Installed Dependencies
-        run: composer show -D
 
       - name: Wait for RabbitMQ
         run: |
           echo "Waiting for RabbitMQ to be ready..."
-          timeout 60 bash -c 'until curl -f http://localhost:15672/api/overview -u laravel:secret > /dev/null 2>&1; do 
-            echo "RabbitMQ not ready yet, waiting..."
+          for i in {1..30}; do
+            if curl -f http://localhost:15673/api/overview -u laravel:secret >/dev/null 2>&1; then
+              echo "RabbitMQ is ready!"
+              break
+            fi
+            echo "Attempt $i/30: RabbitMQ not ready yet, waiting..."
             sleep 2
-          done'
-          echo "RabbitMQ is ready!"
+          done
 
-      - name: Verify RabbitMQ Configuration
+      - name: Verify RabbitMQ
         run: |
-          echo "Checking RabbitMQ status..."
-          curl -u laravel:secret http://localhost:15672/api/overview | jq '.rabbitmq_version'
-          echo "Checking vhost..."
-          curl -u laravel:secret http://localhost:15672/api/vhosts | jq '.[].name'
+          echo "RabbitMQ Status:"
+          curl -u laravel:secret http://localhost:15673/api/overview 2>/dev/null | jq -r '.rabbitmq_version // "Unable to get version"'
+          echo "Available vhosts:"
+          curl -u laravel:secret http://localhost:15673/api/vhosts 2>/dev/null | jq -r '.[].name // "Unable to get vhosts"'
 
-      - name: Execute tests (Unit and Feature tests) via Pest
+      - name: Run tests
         env:
           RABBITMQ_HOST: 127.0.0.1
-          RABBITMQ_PORT: 5672
+          RABBITMQ_PORT: 5673
           RABBITMQ_USER: laravel
           RABBITMQ_PASSWORD: secret
           RABBITMQ_VHOST: b2b-field
-        run: vendor/bin/pest --ci --colors=always
+        run: ./vendor/bin/pest
 
-      - name: Execute tests (Unit and Feature tests) via Pest with Coverage
-        if: matrix.php == '8.3' && matrix.laravel == '11.*' && matrix.stability == 'prefer-stable'
+      - name: Run tests with coverage
+        if: matrix.php == '8.3' && matrix.laravel == '12.*' && matrix.stability == 'prefer-stable'
         env:
           RABBITMQ_HOST: 127.0.0.1
-          RABBITMQ_PORT: 5672
+          RABBITMQ_PORT: 5673
           RABBITMQ_USER: laravel
           RABBITMQ_PASSWORD: secret
           RABBITMQ_VHOST: b2b-field
-        run: vendor/bin/pest --coverage-clover=coverage.clover --ci --colors=always
+        run: |
+          php -d xdebug.mode=coverage ./vendor/bin/pest --coverage-clover=coverage.clover
 
-      - name: Upload coverage reports to Codecov
-        if: matrix.php == '8.3' && matrix.laravel == '11.*' && matrix.stability == 'prefer-stable'
+      - name: Upload coverage to Codecov
+        if: matrix.php == '8.3' && matrix.laravel == '12.*' && matrix.stability == 'prefer-stable'
         uses: codecov/codecov-action@v3
         with:
           file: ./coverage.clover

@@ -5,7 +5,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Queue\QueueManager;
-use Mockery;
+use Mockery as m;
 
 afterEach(function () {
     Mockery::close();

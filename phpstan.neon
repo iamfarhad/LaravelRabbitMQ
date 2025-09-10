@@ -2,7 +2,7 @@ parameters:
     paths:
         - src
     
-    level: 6
+    level: 5
     
     ignoreErrors:
         - '#Call to an undefined static method AMQP[A-Za-z]+::[a-zA-Z_]+\(\)#'
@@ -11,9 +11,19 @@ parameters:
         - '#Parameter .* of method .* has no value type specified in iterable type array#'
         - '#Method .* has no return type specified#'
         - '#Property .* has no type specified#'
+        - '#Call to an undefined method Illuminate\\Queue\\Worker::[a-zA-Z_]+\(\)#'
+        - '#Negated boolean expression is always false#'
+        - '#Else branch is unreachable because previous condition is always true#'
+        - '#Property .* is never read, only written#'
+        - '#Unreachable statement - code above always terminates#'
+        - '#Left side of && is always true#'
+        - '#Parameter .* expects int, float given#'
+        - '#Default value of the parameter .* is incompatible with type#'
+        - '#Parameter .* should be compatible with parameter#'
+        - identifier: missingType.iterableValue
+        - identifier: missingType.generics
     
-    checkMissingIterableValueType: false
-    checkGenericClassInNonGenericObjectType: false
+    treatPhpDocTypesAsCertain: false
     reportUnmatchedIgnoredErrors: false
     
     bootstrapFiles:

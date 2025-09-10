@@ -74,7 +74,7 @@ abstract class TestCase extends Orchestra
             } catch (\Exception $e) {
                 $attempt++;
                 if ($attempt >= $maxAttempts) {
-                    $this->markTestSkipped('RabbitMQ connection not available: ' . $e->getMessage());
+                    $this->markTestSkipped('RabbitMQ connection not available: '.$e->getMessage());
                 }
                 sleep(1);
             }
