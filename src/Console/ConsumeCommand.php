@@ -84,11 +84,11 @@ final class ConsumeCommand extends WorkCommand
             if ($pid === 0) {
                 // Child process
                 exit($this->consume());
-            } else {
-                // Parent process
-                $childPids[] = $pid;
-                $this->info("Started worker process $pid");
             }
+            // Parent process
+            $childPids[] = $pid;
+            $this->info("Started worker process $pid");
+
         }
 
         // Set up signal handling for graceful termination
@@ -160,7 +160,7 @@ final class ConsumeCommand extends WorkCommand
 
         $appName = config('app.name', 'laravel');
         $consumerName = $this->option('name');
-        $uniqueId = md5(serialize($this->options()) . Str::random(16) . getmypid());
+        $uniqueId = md5(serialize($this->options()).Str::random(16).getmypid());
 
         $consumerTag = implode(
             '_',

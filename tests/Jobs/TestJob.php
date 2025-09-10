@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Jobs;
+namespace iamfarhad\LaravelRabbitMQ\Tests\Jobs;
 
 use Exception;
 use Illuminate\Bus\Queueable;
@@ -17,17 +17,17 @@ class TestJob implements ShouldQueue
     use SerializesModels;
 
     public $timeout = 60;
+
     public $tries = 3;
+
     public $maxExceptions = 1;
 
     protected $payload;
+
     protected $shouldFail;
 
     /**
      * Create a new job instance.
-     *
-     * @param mixed $payload
-     * @param bool $shouldFail
      */
     public function __construct($payload, bool $shouldFail = false)
     {
@@ -38,13 +38,12 @@ class TestJob implements ShouldQueue
     /**
      * Execute the job.
      *
-     * @return void
      * @throws Exception
      */
-    public function handle()
+    public function handle(): void
     {
         if ($this->shouldFail) {
-            throw new Exception('Test job intentionally failed: ' . $this->payload);
+            throw new Exception('Test job intentionally failed: '.$this->payload);
         }
 
         // Simulate some work
@@ -52,28 +51,23 @@ class TestJob implements ShouldQueue
 
         // Log the job execution for testing purposes
         if (function_exists('logger')) {
-            logger('TestJob executed with payload: ' . $this->payload);
+            logger('TestJob executed with payload: '.$this->payload);
         }
     }
 
     /**
      * Handle a job failure.
-     *
-     * @param Exception $exception
-     * @return void
      */
-    public function failed(Exception $exception)
+    public function failed(Exception $exception): void
     {
         // Log the failure for testing purposes
         if (function_exists('logger')) {
-            logger('TestJob failed: ' . $exception->getMessage());
+            logger('TestJob failed: '.$exception->getMessage());
         }
     }
 
     /**
      * Get the payload for testing.
-     *
-     * @return mixed
      */
     public function getPayload()
     {
@@ -82,8 +76,6 @@ class TestJob implements ShouldQueue
 
     /**
      * Determine if the job should fail.
-     *
-     * @return bool
      */
     public function getShouldFail(): bool
     {
@@ -92,20 +84,16 @@ class TestJob implements ShouldQueue
 
     /**
      * Calculate the number of seconds to wait before retrying the job.
-     *
-     * @return int
      */
-    public function retryAfter()
+    public function retryAfter(): int
     {
         return 3; // Retry after 3 seconds
     }
 
     /**
      * Get the tags that should be assigned to the job.
-     *
-     * @return array
      */
-    public function tags()
+    public function tags(): array
     {
         return ['test', 'rabbitmq', $this->payload];
     }

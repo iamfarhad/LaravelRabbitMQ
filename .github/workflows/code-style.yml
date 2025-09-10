@@ -1,23 +1,32 @@
-name: Check & fix styling
+name: Coding Standards
 
-on: [push]
+on:
+    push:
+      branches:
+        - '*'
+    pull_request:
+      branches:
+        - '*'
+
+env:
+  COMPOSER_PROCESS_TIMEOUT: 0
+  COMPOSER_NO_INTERACTION: 1
+  COMPOSER_NO_AUDIT: 1
 
 jobs:
-  php-cs-fixer:
-    runs-on: ubuntu-latest
+  phplint:
+      permissions:
+          contents: write
+      runs-on: ubuntu-latest
+      steps:
+          - uses: actions/checkout@v3
+          - name: "laravel-pint"
+            uses: aglipanci/laravel-pint-action@latest
+            with:
+                configPath: './pint.json'
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-
-      - name: Run PHP CS Fixer
-        uses: docker://oskarstark/php-cs-fixer-ga
-        with:
-          args: --config=.php_cs.dist.php --allow-risky=yes
-
-      - name: Commit changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: Fix styling
+          - name: Commit changes
+            uses: stefanzweifel/git-auto-commit-action@v4
+            with:
+                commit_message: PHP Linting (Pint)
+                skip_fetch: true

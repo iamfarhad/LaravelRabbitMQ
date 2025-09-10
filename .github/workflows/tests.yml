@@ -2,43 +2,44 @@ name: Tests
 
 on:
   push:
-    branches: [master, main]
+    branches: [ main, develop ]
   pull_request:
-    branches: [master, main]
+    branches: [ main, develop ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest]
+        php: [8.2, 8.3, 8.4]
+        laravel: [11.*]
+        stability: [prefer-lowest, prefer-stable]
+        include:
+          - laravel: 11.*
+            testbench: 9.*
+            carbon: ^2.63
+
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
+
     services:
       rabbitmq:
-        image: rabbitmq:3.12-management
+        image: rabbitmq:3-management
         env:
-          RABBITMQ_DEFAULT_USER: guest
-          RABBITMQ_DEFAULT_PASS: guest
+          RABBITMQ_DEFAULT_USER: laravel
+          RABBITMQ_DEFAULT_PASS: secret
+          RABBITMQ_DEFAULT_VHOST: laravel-rabbitmq
         ports:
           - 5672:5672
           - 15672:15672
         options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 10s
-          --health-timeout 5s
+          --health-cmd "rabbitmqctl node_health_check"
+          --health-interval 30s
+          --health-timeout 10s
           --health-retries 5
-
-    strategy:
-      fail-fast: false
-      matrix:
-        php: [ 8.2, 8.3, 8.4 ]
-        laravel: [11.*, 12.* ]
-        include:
-          - laravel: 12.*
-            testbench: 10.*
-          - laravel: 11.*
-            testbench: 9.*
-          - laravel: 10.*
-            testbench: 8.*
-
-    name: PHP${{ matrix.php }} - Laravel${{ matrix.laravel }} - ${{ matrix.dependency-version }}
+          --health-start-period 30s
 
     steps:
       - name: Checkout code
@@ -48,7 +49,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, pcntl
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, amqp
           coverage: none
 
       - name: Setup problem matchers
@@ -58,73 +59,44 @@ jobs:
 
       - name: Install dependencies
         run: |
-          composer require "illuminate/console:${{ matrix.laravel }}" "illuminate/database:${{ matrix.laravel }}" "illuminate/filesystem:${{ matrix.laravel }}" --no-update
-          composer require "orchestra/testbench:${{ matrix.testbench }}" --dev --no-update
-          composer update --prefer-dist --no-suggest
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" "nesbot/carbon:${{ matrix.carbon }}" --no-interaction --no-update
+          composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
       - name: List Installed Dependencies
         run: composer show -D
 
       - name: Wait for RabbitMQ
         run: |
-          timeout 60 bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/localhost/5672; do sleep 1; done'
-          echo "RabbitMQ is ready"
+          for i in {1..30}; do
+            if rabbitmqctl -n rabbit@localhost status > /dev/null 2>&1; then
+              echo "RabbitMQ is ready"
+              break
+            fi
+            echo "Waiting for RabbitMQ... ($i/30)"
+            sleep 2
+          done
 
-      - name: Execute tests
-        run: vendor/bin/phpunit
-        env:
-          RABBITMQ_HOST: localhost
-          RABBITMQ_PORT: 5672
-          RABBITMQ_USER: guest
-          RABBITMQ_PASSWORD: guest
-          RABBITMQ_VHOST: /
-
-  coverage:
-    runs-on: ubuntu-latest
-    
-    services:
-      rabbitmq:
-        image: rabbitmq:3.12-management
-        env:
-          RABBITMQ_DEFAULT_USER: guest
-          RABBITMQ_DEFAULT_PASS: guest
-        ports:
-          - 5672:5672
-          - 15672:15672
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    name: Coverage
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: 8.3
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, pcntl
-          coverage: xdebug
-
-      - name: Install dependencies
+      - name: Configure RabbitMQ
         run: |
-          composer require "laravel/framework:^12.0" "orchestra/testbench:^10.1" "nesbot/carbon:^2.63|^3.0" --no-interaction --no-update
-          composer update --prefer-stable --prefer-dist --no-interaction
+          docker exec $(docker ps -q --filter ancestor=rabbitmq:3-management) rabbitmqctl add_user laravel secret || true
+          docker exec $(docker ps -q --filter ancestor=rabbitmq:3-management) rabbitmqctl add_vhost laravel-rabbitmq || true
+          docker exec $(docker ps -q --filter ancestor=rabbitmq:3-management) rabbitmqctl set_permissions -p laravel-rabbitmq laravel ".*" ".*" ".*" || true
 
-      - name: Wait for RabbitMQ
-        run: |
-          timeout 60 bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/localhost/5672; do sleep 1; done'
-          echo "RabbitMQ is ready"
-
-      - name: Execute tests with coverage
-        run: vendor/bin/phpunit
+      - name: Execute tests (Unit and Feature tests) via Pest
         env:
-          RABBITMQ_HOST: localhost
+          RABBITMQ_HOST: 127.0.0.1
           RABBITMQ_PORT: 5672
-          RABBITMQ_USER: guest
-          RABBITMQ_PASSWORD: guest
-          RABBITMQ_VHOST: /
+          RABBITMQ_USER: laravel
+          RABBITMQ_PASSWORD: secret
+          RABBITMQ_VHOST: laravel-rabbitmq
+        run: vendor/bin/pest --ci --colors=always
+
+      - name: Execute tests (Unit and Feature tests) via Pest with Coverage
+        if: matrix.php == '8.3' && matrix.laravel == '11.*' && matrix.stability == 'prefer-stable'
+        env:
+          RABBITMQ_HOST: 127.0.0.1
+          RABBITMQ_PORT: 5672
+          RABBITMQ_USER: laravel
+          RABBITMQ_PASSWORD: secret
+          RABBITMQ_VHOST: laravel-rabbitmq
+        run: vendor/bin/pest --coverage --ci --colors=always

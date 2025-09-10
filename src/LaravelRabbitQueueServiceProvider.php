@@ -12,13 +12,13 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(
-            __DIR__ . '/../config/RabbitMQConnectionConfig.php',
+            __DIR__ . '/../config/rabbitmq.php',
             'queue.connections.rabbitmq'
         );
 
         if ($this->app->runningInConsole()) {
             $this->app->singleton('rabbitmq.consumer', function ($app): Consumer {
-                $isDownForMaintenance = fn (): bool => $app->isDownForMaintenance();
+                $isDownForMaintenance = fn(): bool => $app->isDownForMaintenance();
 
                 return new Consumer(
                     $app['queue'],
@@ -46,5 +46,11 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
         $this->app['queue']->addConnector('rabbitmq', function () {
             return new RabbitMQConnector($this->app['events']);
         });
+
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__ . '/../config/rabbitmq.php' => config_path('rabbitmq.php'),
+            ], 'config');
+        }
     }
 }

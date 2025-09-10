@@ -8,8 +8,9 @@ parameters:
     level: 8
     
     ignoreErrors:
-        - '#Call to an undefined method [a-zA-Z0-9\\_]+::basic_[a-z_]+\(\)#'
-        - '#Access to an undefined property PhpAmqpLib\\Connection\\[a-zA-Z]+::\$[a-zA-Z_]+#'
+        - '#Call to an undefined static method AMQP[A-Za-z]+::[a-zA-Z_]+\(\)#'
+        - '#Access to an undefined property AMQP[A-Za-z]+::\$[a-zA-Z_]+#'
+        - '#Class AMQP[A-Za-z]+ not found#'
     
     checkMissingIterableValueType: false
     checkGenericClassInNonGenericObjectType: false

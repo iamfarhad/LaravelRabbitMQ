@@ -2,13 +2,13 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Jobs;
 
+use AMQPEnvelope;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
 use JsonException;
-use PhpAmqpLib\Message\AMQPMessage;
 
 final class RabbitMQJob extends Job implements JobContract
 {
@@ -17,7 +17,7 @@ final class RabbitMQJob extends Job implements JobContract
     public function __construct(
         Container $container,
         protected RabbitQueue $rabbitQueue,
-        protected AMQPMessage $amqpMessage,
+        protected AMQPEnvelope $amqpEnvelope,
         string $connectionName,
         string $queue
     ) {
@@ -40,7 +40,7 @@ final class RabbitMQJob extends Job implements JobContract
      */
     public function getRawBody(): string
     {
-        return $this->amqpMessage->getBody();
+        return $this->amqpEnvelope->getBody();
     }
 
     /**
@@ -54,7 +54,7 @@ final class RabbitMQJob extends Job implements JobContract
 
         $laravelAttempts = (int) Arr::get($rabbitMQMessageHeaders, 'laravel.attempts', 0);
 
-        return ($laravelAttempts + 1);
+        return $laravelAttempts + 1;
     }
 
     /**
@@ -62,14 +62,15 @@ final class RabbitMQJob extends Job implements JobContract
      */
     private function convertMessageToFailed(): void
     {
-        if ($this->amqpMessage->getExchange() !== 'failed_messages') {
+        if ($this->amqpEnvelope->getExchangeName() !== 'failed_messages') {
             $this->rabbitQueue->declareQueue('failed_messages');
-            $this->rabbitQueue->pushRaw($this->amqpMessage->getBody(), 'failed_messages');
+            $this->rabbitQueue->pushRaw($this->amqpEnvelope->getBody(), 'failed_messages');
         }
     }
 
     /**
      * {@inheritdoc}
+     *
      * @throws JsonException
      */
     public function markAsFailed(): void
@@ -101,7 +102,7 @@ final class RabbitMQJob extends Job implements JobContract
     /**
      * Release the job back into the queue.
      *
-     * @param int $delay
+     * @param  int  $delay
      *
      * @throws JsonException
      */
@@ -110,7 +111,7 @@ final class RabbitMQJob extends Job implements JobContract
         parent::release();
 
         // Always create a new message when this Job is released
-        $this->rabbitQueue->laterRaw($delay, $this->amqpMessage->getBody(), $this->queue, $this->attempts());
+        $this->rabbitQueue->laterRaw($delay, $this->amqpEnvelope->getBody(), $this->queue, $this->attempts());
 
         // Releasing a Job means the message was failed to process.
         // Because this Job message is always recreated and pushed as new message, this Job message is correctly handled.
@@ -123,17 +124,19 @@ final class RabbitMQJob extends Job implements JobContract
         return $this->rabbitQueue;
     }
 
-    public function getRabbitMQMessage(): AMQPMessage
+    public function getRabbitMQMessage(): AMQPEnvelope
     {
-        return $this->amqpMessage;
+        return $this->amqpEnvelope;
     }
 
     private function getRabbitMQMessageHeaders(): ?array
     {
-        if (! $headers = Arr::get($this->amqpMessage->get_properties(), 'application_headers')) {
+        $headers = $this->amqpEnvelope->getHeaders();
+
+        if (! $headers || ! isset($headers['laravel'])) {
             return null;
         }
 
-        return $headers->getNativeData();
+        return $headers;
     }
 }

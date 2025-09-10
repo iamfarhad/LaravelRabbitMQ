@@ -2,50 +2,52 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Connectors;
 
+use AMQPConnection;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Queue\Connectors\ConnectorInterface;
 use Illuminate\Queue\Events\WorkerStopping;
-use PhpAmqpLib\Connection\AMQPConnectionConfig;
-use PhpAmqpLib\Connection\AMQPConnectionFactory;
 
 readonly class RabbitMQConnector implements ConnectorInterface
 {
-    public function __construct(private Dispatcher $dispatcher)
-    {
-    }
+    public function __construct(private Dispatcher $dispatcher) {}
 
     public function connect(array $config = []): Queue
     {
-        $amqpConnectionConfig = new AMQPConnectionConfig();
+        $connectionConfig = [
+            'host' => config('queue.connections.rabbitmq.hosts.host', '127.0.0.1'),
+            'port' => config('queue.connections.rabbitmq.hosts.port', 5672),
+            'login' => config('queue.connections.rabbitmq.hosts.user', 'guest'),
+            'password' => config('queue.connections.rabbitmq.hosts.password', 'guest'),
+            'vhost' => config('queue.connections.rabbitmq.hosts.vhost', '/'),
+        ];
 
-        // set AMQP account
-        $amqpConnectionConfig->setHost(config('queue.connections.rabbitmq.hosts.host'));
-        $amqpConnectionConfig->setPort(config('queue.connections.rabbitmq.hosts.port'));
-        $amqpConnectionConfig->setUser(config('queue.connections.rabbitmq.hosts.user'));
-        $amqpConnectionConfig->setPassword(config('queue.connections.rabbitmq.hosts.password'));
-        $amqpConnectionConfig->setVhost(config('queue.connections.rabbitmq.hosts.vhost'));
+        // Add optional connection parameters
+        if (config('queue.connections.rabbitmq.hosts.heartbeat')) {
+            $connectionConfig['heartbeat'] = config('queue.connections.rabbitmq.hosts.heartbeat');
+        }
 
-        $amqpConnectionConfig->setIsLazy(config('queue.connections.rabbitmq.hosts.lazy'));
-        $amqpConnectionConfig->setKeepalive(config('queue.connections.rabbitmq.hosts.keepalive'));
-        $amqpConnectionConfig->setHeartbeat(config('queue.connections.rabbitmq.hosts.heartbeat'));
-        $amqpConnectionConfig->setIsSecure(config('queue.connections.rabbitmq.hosts.secure'));
+        if (config('queue.connections.rabbitmq.hosts.read_timeout')) {
+            $connectionConfig['read_timeout'] = config('queue.connections.rabbitmq.hosts.read_timeout');
+        }
 
-        // set SSL Options
-        if ($amqpConnectionConfig->isSecure()) {
-            $amqpConnectionConfig->setSslCaCert(config('queue.connections.rabbitmq.options.ssl_options.cafile'));
-            $amqpConnectionConfig->setSslCert(config('queue.connections.rabbitmq.options.ssl_options.local_cert'));
-            $amqpConnectionConfig->setSslKey(config('queue.connections.rabbitmq.options.ssl_options.local_key'));
-            $amqpConnectionConfig->setSslVerify(config('queue.connections.rabbitmq.options.ssl_options.verify_peer'));
-            $amqpConnectionConfig->setSslPassPhrase(config('queue.connections.rabbitmq.options.ssl_options.passphrase'));
+        if (config('queue.connections.rabbitmq.hosts.write_timeout')) {
+            $connectionConfig['write_timeout'] = config('queue.connections.rabbitmq.hosts.write_timeout');
+        }
+
+        if (config('queue.connections.rabbitmq.hosts.connect_timeout')) {
+            $connectionConfig['connect_timeout'] = config('queue.connections.rabbitmq.hosts.connect_timeout');
         }
 
         // Create AMQP Connection
-        $connection = AMQPConnectionFactory::create($amqpConnectionConfig);
-        $defaultQueue = config('queue.connections.rabbitmq.queue');
+        $connection = new AMQPConnection($connectionConfig);
+        $connection->connect();
 
-        $rabbitQueue = new RabbitQueue($connection, $defaultQueue);
+        $defaultQueue = config('queue.connections.rabbitmq.queue', 'default');
+        $options = config('queue.connections.rabbitmq.options', []);
+
+        $rabbitQueue = new RabbitQueue($connection, $defaultQueue, $options);
 
         $this->dispatcher->listen(WorkerStopping::class, fn () => $rabbitQueue->close());
 

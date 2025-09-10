@@ -29,8 +29,8 @@ return [
             'qos' => [
                 'prefetch_size' => 0,
                 'prefetch_count' => 10,
-                'global' => false
-            ]
+                'global' => false,
+            ],
         ],
     ],
 ];

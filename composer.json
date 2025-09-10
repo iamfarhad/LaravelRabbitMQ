@@ -19,19 +19,19 @@
     ],
     "require": {
         "php": "^8.2",
+        "ext-amqp": "*",
         "ext-pcntl": "*",
         "illuminate/queue": "^11.0|^12.0",
-        "illuminate/support": "^11.0|^12.0",
-        "php-amqplib/php-amqplib": "^v3.7.3"
+        "illuminate/support": "^11.0|^12.0"
     },
     "require-dev": {
         "ext-json": "*",
         "dg/bypass-finals": "dev-master",
+        "laravel/pint": "^1.13",
         "mockery/mockery": "^1.0",
         "orchestra/testbench": "^9.0|^10.0",
-        "phpunit/phpunit": "^10.0|^11.0",
-        "rector/rector": "^0.15.25",
-        "squizlabs/php_codesniffer": "^3.12"
+        "pestphp/pest": "^3.0",
+        "pestphp/pest-plugin-laravel": "^3.0"
     },
     "autoload": {
         "psr-4": {
@@ -44,12 +44,11 @@
         }
     },
     "scripts": {
-        "test": "vendor/bin/phpunit",
-        "test-coverage": "vendor/bin/phpunit --coverage-html coverage",
-        "format": "vendor/bin/phpcbf --standard=PSR12 src tests",
-        "analyse": "vendor/bin/phpstan analyse",
-        "rector": "vendor/bin/rector process --dry-run",
-        "rector-fix": "vendor/bin/rector process"
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage-html coverage",
+        "test-parallel": "vendor/bin/pest --parallel",
+        "format": "vendor/bin/pint",
+        "format-test": "vendor/bin/pint --test"
     },
     "config": {
         "sort-packages": true,
@@ -61,7 +60,10 @@
         "laravel": {
             "providers": [
                 "iamfarhad\\LaravelRabbitMQ\\LaravelRabbitQueueServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "RabbitMQ": "iamfarhad\\LaravelRabbitMQ\\Facades\\RabbitMQ"
+            }
         }
     },
     "minimum-stability": "stable",
