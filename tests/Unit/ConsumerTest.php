@@ -18,7 +18,7 @@ it('creates consumer instance', function () {
     $manager = Mockery::mock(QueueManager::class);
     $events = Mockery::mock(Dispatcher::class);
     $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    $isDownForMaintenance = fn () => false;
 
     $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
@@ -29,7 +29,7 @@ it('sets container without error', function () {
     $manager = Mockery::mock(QueueManager::class);
     $events = Mockery::mock(Dispatcher::class);
     $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    $isDownForMaintenance = fn () => false;
 
     $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
     $container = new Container;
@@ -43,7 +43,7 @@ it('sets consumer tag without error', function () {
     $manager = Mockery::mock(QueueManager::class);
     $events = Mockery::mock(Dispatcher::class);
     $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    $isDownForMaintenance = fn () => false;
 
     $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
@@ -56,7 +56,7 @@ it('sets max priority without error', function () {
     $manager = Mockery::mock(QueueManager::class);
     $events = Mockery::mock(Dispatcher::class);
     $exceptions = Mockery::mock(ExceptionHandler::class);
-    $isDownForMaintenance = fn() => false;
+    $isDownForMaintenance = fn () => false;
 
     $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 

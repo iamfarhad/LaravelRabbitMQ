@@ -70,7 +70,7 @@ it('respects queue configuration', function () {
 it('can handle job failures gracefully', function () {
     $job = new TestJob('failing-job', true); // Job that will fail
 
-    expect(fn() => Queue::push($job))->not->toThrow(\Exception::class);
+    expect(fn () => Queue::push($job))->not->toThrow(\Exception::class);
 });
 
 it('can purge queue', function () {
@@ -101,7 +101,7 @@ it('can delete queue', function () {
 });
 
 it('checks queue existence', function () {
-    $queueName = 'existence-test-queue-' . uniqid();
+    $queueName = 'existence-test-queue-'.uniqid();
     $connection = Queue::connection('rabbitmq');
 
     // Queue should not exist initially
@@ -133,7 +133,7 @@ it('can pop job from queue', function () {
 });
 
 it('returns null for empty queue', function () {
-    $queueName = 'empty-test-queue-' . uniqid();
+    $queueName = 'empty-test-queue-'.uniqid();
 
     $connection = Queue::connection('rabbitmq');
 
@@ -147,6 +147,6 @@ it('handles connection errors gracefully', function () {
     // Test with invalid configuration
     config(['queue.connections.rabbitmq.hosts.host' => 'invalid-host']);
 
-    expect(fn() => Queue::connection('rabbitmq')->push(new TestJob('error-test')))
+    expect(fn () => Queue::connection('rabbitmq')->push(new TestJob('error-test')))
         ->toThrow(\Exception::class);
 });

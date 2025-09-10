@@ -119,10 +119,10 @@ class Consumer extends Worker implements ConsumerInterface
                     // No job available, sleep for a bit
                     $this->sleep($options->sleep);
                 }
-            } catch (AMQPChannelException | AMQPConnectionException $exception) {
+            } catch (AMQPChannelException|AMQPConnectionException $exception) {
                 $this->exceptions->report($exception);
                 $this->stopWorkerIfLostConnection($exception);
-            } catch (Exception | Throwable $exception) {
+            } catch (Exception|Throwable $exception) {
                 $this->exceptions->report($exception);
                 $this->stopWorkerIfLostConnection($exception);
             }
