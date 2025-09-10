@@ -51,7 +51,6 @@ abstract class TestCase extends Orchestra
         ]);
     }
 
-
     private function ensureRabbitMQConnection(): void
     {
         // AMQP extension is required and should be available

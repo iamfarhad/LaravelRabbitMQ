@@ -24,7 +24,7 @@ class ConsumerTest extends TestCase
         $manager = \Mockery::mock(QueueManager::class);
         $events = \Mockery::mock(Dispatcher::class);
         $exceptions = \Mockery::mock(ExceptionHandler::class);
-        $isDownForMaintenance = fn() => false;
+        $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
@@ -36,10 +36,10 @@ class ConsumerTest extends TestCase
         $manager = \Mockery::mock(QueueManager::class);
         $events = \Mockery::mock(Dispatcher::class);
         $exceptions = \Mockery::mock(ExceptionHandler::class);
-        $isDownForMaintenance = fn() => false;
+        $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
-        $container = new Container();
+        $container = new Container;
 
         $consumer->setContainer($container);
 
@@ -51,7 +51,7 @@ class ConsumerTest extends TestCase
         $manager = \Mockery::mock(QueueManager::class);
         $events = \Mockery::mock(Dispatcher::class);
         $exceptions = \Mockery::mock(ExceptionHandler::class);
-        $isDownForMaintenance = fn() => false;
+        $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
@@ -65,7 +65,7 @@ class ConsumerTest extends TestCase
         $manager = \Mockery::mock(QueueManager::class);
         $events = \Mockery::mock(Dispatcher::class);
         $exceptions = \Mockery::mock(ExceptionHandler::class);
-        $isDownForMaintenance = fn() => false;
+        $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
@@ -79,7 +79,7 @@ class ConsumerTest extends TestCase
         $manager = \Mockery::mock(QueueManager::class);
         $events = \Mockery::mock(Dispatcher::class);
         $exceptions = \Mockery::mock(ExceptionHandler::class);
-        $isDownForMaintenance = fn() => true; // Simulate maintenance mode
+        $isDownForMaintenance = fn () => true; // Simulate maintenance mode
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
 
@@ -95,6 +95,7 @@ class ConsumerTest extends TestCase
         $maintenanceCallCount = 0;
         $isDownForMaintenance = function () use (&$maintenanceCallCount) {
             $maintenanceCallCount++;
+
             return false;
         };
 

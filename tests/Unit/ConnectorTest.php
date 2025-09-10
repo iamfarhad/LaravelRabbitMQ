@@ -12,7 +12,7 @@ class ConnectorTest extends TestCase
 {
     public function testCreatesConnectorInstance(): void
     {
-        $dispatcher = new Dispatcher();
+        $dispatcher = new Dispatcher;
         $connector = new RabbitMQConnector($dispatcher);
 
         $this->assertInstanceOf(RabbitMQConnector::class, $connector);
@@ -20,7 +20,7 @@ class ConnectorTest extends TestCase
 
     public function testValidatesConfigurationFormat(): void
     {
-        $dispatcher = new Dispatcher();
+        $dispatcher = new Dispatcher;
         $connector = new RabbitMQConnector($dispatcher);
 
         // Test that configuration is handled properly
@@ -40,7 +40,7 @@ class ConnectorTest extends TestCase
 
     public function testHandlesOptionsConfiguration(): void
     {
-        $dispatcher = new Dispatcher();
+        $dispatcher = new Dispatcher;
         $connector = new RabbitMQConnector($dispatcher);
 
         // Test configuration options handling
@@ -57,7 +57,7 @@ class ConnectorTest extends TestCase
 
     public function testConnectorAcceptsValidConfiguration(): void
     {
-        $dispatcher = new Dispatcher();
+        $dispatcher = new Dispatcher;
         $connector = new RabbitMQConnector($dispatcher);
 
         $config = [

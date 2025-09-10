@@ -82,8 +82,8 @@ class MessageHelpersTest extends UnitTestCase
             'job' => 'TestJob',
             'data' => [
                 'nested' => ['deep' => 'value'],
-                'array' => [1, 2, 3]
-            ]
+                'array' => [1, 2, 3],
+            ],
         ]);
 
         $extractedId = MessageHelpers::extractCorrelationId($payload);
@@ -108,13 +108,13 @@ class MessageHelpersTest extends UnitTestCase
         $complexJson = json_encode([
             'level1' => [
                 'level2' => [
-                    'level3' => 'deep value'
-                ]
+                    'level3' => 'deep value',
+                ],
             ],
             'array' => [1, 2, 3, ['nested' => true]],
             'null_value' => null,
             'boolean' => false,
-            'number' => 42.5
+            'number' => 42.5,
         ]);
 
         $this->assertTrue(MessageHelpers::isValidJson($complexJson));

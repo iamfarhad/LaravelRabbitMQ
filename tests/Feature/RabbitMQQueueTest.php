@@ -128,7 +128,7 @@ class RabbitMQQueueTest extends TestCase
 
     public function testChecksQueueExistence(): void
     {
-        $queueName = 'existence-test-queue-' . uniqid();
+        $queueName = 'existence-test-queue-'.uniqid();
         $connection = Queue::connection('rabbitmq');
 
         // Queue should not exist initially
@@ -161,7 +161,7 @@ class RabbitMQQueueTest extends TestCase
 
     public function testReturnsNullForEmptyQueue(): void
     {
-        $queueName = 'empty-test-queue-' . uniqid();
+        $queueName = 'empty-test-queue-'.uniqid();
 
         $connection = Queue::connection('rabbitmq');
 

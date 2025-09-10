@@ -62,10 +62,10 @@ class RabbitQueueTest extends UnitTestCase
             'data' => [
                 'nested' => ['array' => 'value'],
                 'number' => 123,
-                'boolean' => true
+                'boolean' => true,
             ],
             'attempts' => 1,
-            'timeout' => null
+            'timeout' => null,
         ]);
 
         $extractedId = MessageHelpers::extractCorrelationId($complexPayload);
