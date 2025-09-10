@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<pest
+<phpunit
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
+    backupGlobals="false"
+    colors="true"
+    processIsolation="false"
     stopOnFailure="false"
     stopOnError="false"
+    bootstrap="vendor/autoload.php"
 >
     <testsuites>
         <testsuite name="Unit">
@@ -11,13 +17,13 @@
             <directory suffix="Test.php">./tests/Feature</directory>
         </testsuite>
     </testsuites>
-    
+
     <source>
         <include>
             <directory suffix=".php">./src</directory>
         </include>
     </source>
-    
+
     <php>
         <env name="APP_ENV" value="testing"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
@@ -28,9 +34,9 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="RABBITMQ_HOST" value="127.0.0.1"/>
-        <env name="RABBITMQ_PORT" value="5672"/>
+        <env name="RABBITMQ_PORT" value="5673"/>
         <env name="RABBITMQ_USER" value="laravel"/>
         <env name="RABBITMQ_PASSWORD" value="secret"/>
         <env name="RABBITMQ_VHOST" value="b2b-field"/>
     </php>
-</pest>
+</phpunit>

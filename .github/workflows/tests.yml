@@ -59,6 +59,13 @@ jobs:
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
+      - name: Clear Pest cache
+        run: |
+          rm -rf vendor/pestphp/pest/cache
+          rm -rf .phpunit.cache
+          rm -rf .pest.cache
+          find . -name "*.cache" -type f -delete 2>/dev/null || true
+
       - name: Wait for RabbitMQ
         run: |
           echo "Waiting for RabbitMQ to be ready..."
@@ -85,5 +92,4 @@ jobs:
           RABBITMQ_USER: laravel
           RABBITMQ_PASSWORD: secret
           RABBITMQ_VHOST: b2b-field
-          PEST_CACHE_DIRECTORY: ""
-        run: ./vendor/bin/pest tests/Unit tests/Feature
+        run: ./run-tests.sh
