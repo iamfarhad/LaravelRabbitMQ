@@ -494,8 +494,11 @@ This package includes comprehensive testing with Pest:
 # Run all tests
 composer test
 
-# Run tests with coverage
+# Run tests with HTML coverage report
 composer test-coverage
+
+# Run tests with Clover coverage report (for CI)
+composer test-coverage-clover
 
 # Run tests in parallel
 composer test-parallel

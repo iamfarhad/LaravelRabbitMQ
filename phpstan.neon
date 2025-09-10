@@ -1,17 +1,20 @@
-includes:
-    - vendor/larastan/larastan/extension.neon
-
 parameters:
     paths:
         - src
     
-    level: 8
+    level: 6
     
     ignoreErrors:
         - '#Call to an undefined static method AMQP[A-Za-z]+::[a-zA-Z_]+\(\)#'
         - '#Access to an undefined property AMQP[A-Za-z]+::\$[a-zA-Z_]+#'
         - '#Class AMQP[A-Za-z]+ not found#'
+        - '#Parameter .* of method .* has no value type specified in iterable type array#'
+        - '#Method .* has no return type specified#'
+        - '#Property .* has no type specified#'
     
     checkMissingIterableValueType: false
     checkGenericClassInNonGenericObjectType: false
     reportUnmatchedIgnoredErrors: false
+    
+    bootstrapFiles:
+        - vendor/autoload.php

@@ -1,32 +1,52 @@
-name: Coding Standards
+name: Code Style
 
 on:
-    push:
-      branches:
-        - '*'
-    pull_request:
-      branches:
-        - '*'
-
-env:
-  COMPOSER_PROCESS_TIMEOUT: 0
-  COMPOSER_NO_INTERACTION: 1
-  COMPOSER_NO_AUDIT: 1
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
 
 jobs:
-  phplint:
-      permissions:
-          contents: write
-      runs-on: ubuntu-latest
-      steps:
-          - uses: actions/checkout@v3
-          - name: "laravel-pint"
-            uses: aglipanci/laravel-pint-action@latest
-            with:
-                configPath: './pint.json'
+  code-style:
+    runs-on: ubuntu-latest
 
-          - name: Commit changes
-            uses: stefanzweifel/git-auto-commit-action@v4
-            with:
-                commit_message: PHP Linting (Pint)
-                skip_fetch: true
+    name: Code Style Check
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Check code style
+        run: vendor/bin/pint --test
+
+  static-analysis:
+    runs-on: ubuntu-latest
+
+    name: Static Analysis
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --memory-limit=2G

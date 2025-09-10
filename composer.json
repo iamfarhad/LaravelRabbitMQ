@@ -31,7 +31,8 @@
         "mockery/mockery": "^1.0",
         "orchestra/testbench": "^9.0|^10.0",
         "pestphp/pest": "^3.0",
-        "pestphp/pest-plugin-laravel": "^3.0"
+        "pestphp/pest-plugin-laravel": "^3.0",
+        "phpstan/phpstan": "^1.10"
     },
     "autoload": {
         "psr-4": {
@@ -45,7 +46,8 @@
     },
     "scripts": {
         "test": "vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage-html coverage",
+        "test-coverage": "vendor/bin/pest --coverage-html=coverage",
+        "test-coverage-clover": "vendor/bin/pest --coverage-clover=coverage.clover",
         "test-parallel": "vendor/bin/pest --parallel",
         "format": "vendor/bin/pint",
         "format-test": "vendor/bin/pint --test"

@@ -1,7 +1,25 @@
+# Dependencies
 /vendor/
-.idea
-.phpunit.result.cache
 composer.lock
-/.phpunit.result.cache
-/build/*
-.phpunit.cache
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.phpunit.result.cache
+.phpunit.cache/
+/build/
+/coverage/
+coverage.clover
+*.coverage
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
