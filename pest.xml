@@ -4,7 +4,6 @@
     xsi:noNamespaceSchemaLocation="./vendor/pestphp/pest/pest.xsd"
     stopOnFailure="false"
     stopOnError="false"
-    printerClass="NunoMaduro\Collision\Adapters\Phpunit\Printer"
 >
     <testsuites>
         <testsuite name="Unit">

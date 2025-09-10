@@ -53,7 +53,6 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, amqp
-          coverage: none
 
       - name: Install dependencies
         run: |
@@ -86,22 +85,5 @@ jobs:
           RABBITMQ_USER: laravel
           RABBITMQ_PASSWORD: secret
           RABBITMQ_VHOST: b2b-field
-        run: ./vendor/bin/pest
-
-      - name: Run tests with coverage
-        if: matrix.php == '8.3' && matrix.laravel == '12.*' && matrix.stability == 'prefer-stable'
-        env:
-          RABBITMQ_HOST: 127.0.0.1
-          RABBITMQ_PORT: 5673
-          RABBITMQ_USER: laravel
-          RABBITMQ_PASSWORD: secret
-          RABBITMQ_VHOST: b2b-field
-        run: |
-          php -d xdebug.mode=coverage ./vendor/bin/pest --coverage-clover=coverage.clover
-
-      - name: Upload coverage to Codecov
-        if: matrix.php == '8.3' && matrix.laravel == '12.*' && matrix.stability == 'prefer-stable'
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.clover
-          fail_ci_if_error: false
+          PEST_CACHE_DIRECTORY: ""
+        run: ./vendor/bin/pest tests/Unit tests/Feature
