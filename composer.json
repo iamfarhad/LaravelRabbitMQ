@@ -30,8 +30,6 @@
         "laravel/pint": "^1.13",
         "mockery/mockery": "^1.0",
         "orchestra/testbench": "^9.0|^10.0|^11.0",
-        "pestphp/pest": "^3.0",
-        "pestphp/pest-plugin-laravel": "^3.0",
         "phpstan/phpstan": "^1.10"
     },
     "autoload": {
@@ -45,18 +43,14 @@
         }
     },
     "scripts": {
-        "test": "vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage-html=coverage",
-        "test-coverage-clover": "vendor/bin/pest --coverage-clover=coverage.clover",
-        "test-parallel": "vendor/bin/pest --parallel",
+        "test": "vendor/bin/phpunit",
+        "test:unit": "vendor/bin/phpunit --testsuite Unit",
+        "test:feature": "vendor/bin/phpunit --testsuite Feature",
         "format": "vendor/bin/pint",
         "format-test": "vendor/bin/pint --test"
     },
     "config": {
-        "sort-packages": true,
-        "allow-plugins": {
-            "pestphp/pest-plugin": true
-        }
+        "sort-packages": true
     },
     "extra": {
         "laravel": {
