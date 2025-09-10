@@ -30,10 +30,10 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
-            <env name="RABBITMQ_HOST" value="laravel_rabbitmq"/>
-            <env name="RABBITMQ_PORT" value="5672"/>
-            <env name="RABBITMQ_USER" value="laravel"/>
-            <env name="RABBITMQ_PASSWORD" value="secret"/>
-            <env name="RABBITMQ_VHOST" value="b2b-field"/>
+        <env name="RABBITMQ_HOST" value="127.0.0.1"/>
+        <env name="RABBITMQ_PORT" value="5672"/>
+        <env name="RABBITMQ_USER" value="laravel"/>
+        <env name="RABBITMQ_PASSWORD" value="secret"/>
+        <env name="RABBITMQ_VHOST" value="b2b-field"/>
     </php>
 </pest>

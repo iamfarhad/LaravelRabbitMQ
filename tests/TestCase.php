@@ -34,7 +34,7 @@ abstract class TestCase extends Orchestra
             'driver' => 'rabbitmq',
             'queue' => env('RABBITMQ_QUEUE', 'default'),
             'hosts' => [
-                'host' => env('RABBITMQ_HOST', 'laravel_rabbitmq'),
+                'host' => env('RABBITMQ_HOST', '127.0.0.1'),
                 'port' => env('RABBITMQ_PORT', 5672),
                 'user' => env('RABBITMQ_USER', 'laravel'),
                 'password' => env('RABBITMQ_PASSWORD', 'secret'),
@@ -74,7 +74,7 @@ abstract class TestCase extends Orchestra
             } catch (\Exception $e) {
                 $attempt++;
                 if ($attempt >= $maxAttempts) {
-                    $this->markTestSkipped('RabbitMQ connection not available: '.$e->getMessage());
+                    $this->markTestSkipped('RabbitMQ connection not available: ' . $e->getMessage());
                 }
                 sleep(1);
             }

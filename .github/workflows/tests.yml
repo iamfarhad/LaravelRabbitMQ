@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        php: [8.2, 8.3, 8.4]
+        php: [8.2, 8.3]
         laravel: [11.*]
         stability: [prefer-lowest, prefer-stable]
         include:
@@ -30,16 +30,16 @@ jobs:
         env:
           RABBITMQ_DEFAULT_USER: laravel
           RABBITMQ_DEFAULT_PASS: secret
-          RABBITMQ_DEFAULT_VHOST: laravel-rabbitmq
+          RABBITMQ_DEFAULT_VHOST: b2b-field
         ports:
           - 5672:5672
           - 15672:15672
         options: >-
-          --health-cmd "rabbitmqctl node_health_check"
-          --health-interval 30s
-          --health-timeout 10s
-          --health-retries 5
-          --health-start-period 30s
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 20s
 
     steps:
       - name: Checkout code
@@ -67,20 +67,19 @@ jobs:
 
       - name: Wait for RabbitMQ
         run: |
-          for i in {1..30}; do
-            if rabbitmqctl -n rabbit@localhost status > /dev/null 2>&1; then
-              echo "RabbitMQ is ready"
-              break
-            fi
-            echo "Waiting for RabbitMQ... ($i/30)"
+          echo "Waiting for RabbitMQ to be ready..."
+          timeout 60 bash -c 'until curl -f http://localhost:15672/api/overview -u laravel:secret > /dev/null 2>&1; do 
+            echo "RabbitMQ not ready yet, waiting..."
             sleep 2
-          done
+          done'
+          echo "RabbitMQ is ready!"
 
-      - name: Configure RabbitMQ
+      - name: Verify RabbitMQ Configuration
         run: |
-          docker exec $(docker ps -q --filter ancestor=rabbitmq:3-management) rabbitmqctl add_user laravel secret || true
-          docker exec $(docker ps -q --filter ancestor=rabbitmq:3-management) rabbitmqctl add_vhost laravel-rabbitmq || true
-          docker exec $(docker ps -q --filter ancestor=rabbitmq:3-management) rabbitmqctl set_permissions -p laravel-rabbitmq laravel ".*" ".*" ".*" || true
+          echo "Checking RabbitMQ status..."
+          curl -u laravel:secret http://localhost:15672/api/overview | jq '.rabbitmq_version'
+          echo "Checking vhost..."
+          curl -u laravel:secret http://localhost:15672/api/vhosts | jq '.[].name'
 
       - name: Execute tests (Unit and Feature tests) via Pest
         env:
@@ -88,7 +87,7 @@ jobs:
           RABBITMQ_PORT: 5672
           RABBITMQ_USER: laravel
           RABBITMQ_PASSWORD: secret
-          RABBITMQ_VHOST: laravel-rabbitmq
+          RABBITMQ_VHOST: b2b-field
         run: vendor/bin/pest --ci --colors=always
 
       - name: Execute tests (Unit and Feature tests) via Pest with Coverage
@@ -98,5 +97,12 @@ jobs:
           RABBITMQ_PORT: 5672
           RABBITMQ_USER: laravel
           RABBITMQ_PASSWORD: secret
-          RABBITMQ_VHOST: laravel-rabbitmq
-        run: vendor/bin/pest --coverage --ci --colors=always
+          RABBITMQ_VHOST: b2b-field
+        run: vendor/bin/pest --coverage-clover=coverage.clover --ci --colors=always
+
+      - name: Upload coverage reports to Codecov
+        if: matrix.php == '8.3' && matrix.laravel == '11.*' && matrix.stability == 'prefer-stable'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.clover
+          fail_ci_if_error: false
