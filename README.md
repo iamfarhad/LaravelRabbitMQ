@@ -3,7 +3,7 @@
 [![Latest Stable Version](https://poser.pugx.org/iamfarhad/laravel-rabbitmq/v/stable?format=flat-square)](https://packagist.org/packages/iamfarhad/laravel-rabbitmq)
 [![Total Downloads](https://poser.pugx.org/iamfarhad/laravel-rabbitmq/downloads?format=flat-square)](https://packagist.org/packages/iamfarhad/laravel-rabbitmq)
 [![License](https://poser.pugx.org/iamfarhad/laravel-rabbitmq/license?format=flat-square)](https://packagist.org/packages/iamfarhad/laravel-rabbitmq)
-[![Tests](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/test.yml/badge.svg)](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/test.yml)
+[![Tests](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/tests.yml/badge.svg)](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/test.yml)
 [![Coding Standards](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/code-style.yml/badge.svg)](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/code-style.yml)
 
 A robust and production-ready RabbitMQ queue driver implementation for Laravel, providing advanced message queuing capabilities with high performance, reliability, and enterprise-grade features. Built with modern PHP architecture and extensive testing.
