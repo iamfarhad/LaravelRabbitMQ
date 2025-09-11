@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace iamfarhad\LaravelRabbitMQ\Jobs;
 
 use AMQPEnvelope;
@@ -8,10 +10,14 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Log;
 use JsonException;
+use Throwable;
 
 final class RabbitMQJob extends Job implements JobContract
 {
+    private const FAILED_MESSAGES_EXCHANGE = 'failed_messages';
+
     private readonly array $decoded;
 
     public function __construct(
@@ -30,7 +36,7 @@ final class RabbitMQJob extends Job implements JobContract
     /**
      * {@inheritdoc}
      */
-    public function getJobId()
+    public function getJobId(): ?string
     {
         return $this->decoded['id'] ?? null;
     }
@@ -62,9 +68,28 @@ final class RabbitMQJob extends Job implements JobContract
      */
     private function convertMessageToFailed(): void
     {
-        if ($this->amqpEnvelope->getExchangeName() !== 'failed_messages') {
-            $this->rabbitQueue->declareQueue('failed_messages');
-            $this->rabbitQueue->pushRaw($this->amqpEnvelope->getBody(), 'failed_messages');
+        try {
+            if ($this->amqpEnvelope->getExchangeName() !== self::FAILED_MESSAGES_EXCHANGE) {
+                // Check if the RabbitMQ connection is still available before attempting operations
+                if (! $this->rabbitQueue->getConnection()->isConnected()) {
+                    Log::warning('RabbitMQ connection lost, cannot move job to failed_messages queue', [
+                        'job_id' => $this->getJobId(),
+                    ]);
+
+                    return;
+                }
+
+                $this->rabbitQueue->declareQueue(self::FAILED_MESSAGES_EXCHANGE);
+                $this->rabbitQueue->pushRaw($this->amqpEnvelope->getBody(), self::FAILED_MESSAGES_EXCHANGE);
+            }
+        } catch (Throwable $e) {
+            // If channel is not available or queue declaration fails, just log the error
+            // This can happen when the connection is lost during job processing
+            Log::error('Failed to move job to failed_messages queue', [
+                'job_id' => $this->getJobId(),
+                'exception' => $e->getMessage(),
+                'exception_class' => get_class($e),
+            ]);
         }
     }
 

@@ -1,8 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace iamfarhad\LaravelRabbitMQ\Connectors;
 
 use AMQPConnection;
+use AMQPConnectionException;
+use iamfarhad\LaravelRabbitMQ\Exceptions\ConnectionException;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Queue\Queue;
@@ -13,6 +17,9 @@ readonly class RabbitMQConnector implements ConnectorInterface
 {
     public function __construct(private Dispatcher $dispatcher) {}
 
+    /**
+     * @throws ConnectionException
+     */
     public function connect(array $config = []): Queue
     {
         $connectionConfig = [
@@ -41,8 +48,16 @@ readonly class RabbitMQConnector implements ConnectorInterface
         }
 
         // Create AMQP Connection
-        $connection = new AMQPConnection($connectionConfig);
-        $connection->connect();
+        try {
+            $connection = new AMQPConnection($connectionConfig);
+            $connection->connect();
+        } catch (AMQPConnectionException $e) {
+            throw new ConnectionException(
+                'Failed to connect to RabbitMQ: '.$e->getMessage(),
+                $e->getCode(),
+                $e
+            );
+        }
 
         $defaultQueue = config('queue.connections.rabbitmq.queue', 'default');
         $options = config('queue.connections.rabbitmq.options', []);

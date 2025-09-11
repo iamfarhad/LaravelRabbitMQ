@@ -1,29 +1,33 @@
 <?php
 
+declare(strict_types=1);
+
 namespace iamfarhad\LaravelRabbitMQ;
 
 use AMQPChannel;
 use AMQPChannelException;
 use AMQPConnectionException;
+use AMQPEnvelope;
 use AMQPQueue;
 use Exception;
-use iamfarhad\LaravelRabbitMQ\Contracts\ConsumerInterface;
+use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use Illuminate\Container\Container;
 use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
+use RuntimeException;
 use Throwable;
 
-class Consumer extends Worker implements ConsumerInterface
+class Consumer extends Worker
 {
     private Container $container;
 
-    private string $consumerTag;
+    private string $consumerTag = '';
 
-    private int $maxPriority;
+    private int $maxPriority = 0;
 
     private AMQPChannel $amqpChannel;
 
-    private ?object $currentJob = null;
+    private ?RabbitMQJob $currentJob = null;
 
     public function setContainer(Container $container): void
     {
@@ -63,7 +67,7 @@ class Consumer extends Worker implements ConsumerInterface
 
         // Check if the connection is a RabbitQueue instance
         if (! $connection instanceof RabbitQueue) {
-            throw new \RuntimeException('Connection must be an instance of RabbitQueue for RabbitMQ Consumer');
+            throw new RuntimeException('Connection must be an instance of RabbitQueue for RabbitMQ Consumer');
         }
 
         $connection->declareQueue($queue);
@@ -91,7 +95,7 @@ class Consumer extends Worker implements ConsumerInterface
                 // Try to get a message from the queue
                 $envelope = $amqpQueue->get(AMQP_NOPARAM);
 
-                if ($envelope !== false) {
+                if ($envelope instanceof AMQPEnvelope) {
                     $job = new $jobClass(
                         $this->container,
                         $connection,
@@ -100,6 +104,7 @@ class Consumer extends Worker implements ConsumerInterface
                         $queue
                     );
 
+                    /** @var RabbitMQJob $job */
                     $this->currentJob = $job;
 
                     if ($this->supportsAsyncSignals()) {

@@ -1,17 +1,20 @@
 <?php
 
+declare(strict_types=1);
+
 namespace iamfarhad\LaravelRabbitMQ\Support;
 
+use Illuminate\Support\Str;
 use JsonException;
 
-class MessageHelpers
+final class MessageHelpers
 {
     /**
      * Generate a unique correlation ID.
      */
     public static function generateCorrelationId(): string
     {
-        return (string) \Illuminate\Support\Str::uuid();
+        return (string) Str::uuid();
     }
 
     /**

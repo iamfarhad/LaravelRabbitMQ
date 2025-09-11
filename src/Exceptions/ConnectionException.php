@@ -1,8 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace iamfarhad\LaravelRabbitMQ\Exceptions;
 
-class ConnectionException extends RabbitMQException
+final class ConnectionException extends RabbitMQException
 {
     //
 }

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace iamfarhad\LaravelRabbitMQ;
 
 use AMQPChannel;
@@ -8,6 +10,7 @@ use AMQPConnection;
 use AMQPConnectionException;
 use AMQPExchange;
 use AMQPQueue;
+use AMQPQueueException;
 use Exception;
 use iamfarhad\LaravelRabbitMQ\Contracts\RabbitQueueInterface;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
@@ -21,6 +24,16 @@ use Throwable;
 
 class RabbitQueue extends Queue implements RabbitQueueInterface
 {
+    private const DELIVERY_MODE_PERSISTENT = 2;
+
+    private const QUEUE_NOT_FOUND_CODE = 404;
+
+    private const QUEUE_ALREADY_EXISTS_CODE = 406;
+
+    private const DEFAULT_RETRY_DELAY = 1000;
+
+    private const MAX_RETRY_ATTEMPTS = 3;
+
     private AMQPChannel $amqpChannel;
 
     private ?RabbitMQJob $rabbitMQJob = null;
@@ -55,7 +68,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return $amqpQueue->declareQueue();
         } catch (AMQPChannelException $exception) {
             // If queue doesn't exist
-            if ($exception->getCode() === 404) {
+            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
                 return 0;
             }
 
@@ -87,7 +100,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      * Push a raw payload onto the queue.
      *
      * @param  string  $payload
-     * @param  string  $queue
+     * @param  string|null  $queue
      *
      * @throws JsonException
      */
@@ -98,33 +111,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
         $this->declareQueue($queueName);
 
-        try {
-            $correlationId = $this->createMessage($payload, $attempts);
-
-            $amqpExchange = new AMQPExchange($this->amqpChannel);
-            $amqpExchange->setName('');
-            $amqpExchange->publish($payload, $queueName, AMQP_NOPARAM, [
-                'correlation_id' => $correlationId,
-                'delivery_mode' => 2, // Persistent
-                'content_type' => 'application/json',
-            ]);
-
-            return $correlationId;
-        } catch (AMQPChannelException|AMQPConnectionException $exception) {
-            // Reopen channel and try again
-            $this->amqpChannel = new AMQPChannel($this->connection);
-            $correlationId = $this->createMessage($payload, $attempts);
-
-            $amqpExchange = new AMQPExchange($this->amqpChannel);
-            $amqpExchange->setName('');
-            $amqpExchange->publish($payload, $queueName, AMQP_NOPARAM, [
-                'correlation_id' => $correlationId,
-                'delivery_mode' => 2, // Persistent
-                'content_type' => 'application/json',
-            ]);
-
-            return $correlationId;
-        }
+        return $this->publishMessage($payload, $queueName, $attempts);
     }
 
     /**
@@ -172,34 +159,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
         $this->declareDelayQueue($delayQueueName, $queueName, $ttl);
 
-        try {
-            $correlationId = $this->createMessage($payload, $attempts);
-
-            $amqpExchange = new AMQPExchange($this->amqpChannel);
-            $amqpExchange->setName('');
-            $amqpExchange->publish($payload, $delayQueueName, AMQP_NOPARAM, [
-                'correlation_id' => $correlationId,
-                'delivery_mode' => 2, // Persistent
-                'content_type' => 'application/json',
-            ]);
-
-            return $correlationId;
-        } catch (AMQPChannelException|AMQPConnectionException $exception) {
-            // Reopen channel and try again
-            $this->amqpChannel = new AMQPChannel($this->connection);
-            $this->declareDelayQueue($delayQueueName, $queueName, $ttl);
-            $correlationId = $this->createMessage($payload, $attempts);
-
-            $amqpExchange = new AMQPExchange($this->amqpChannel);
-            $amqpExchange->setName('');
-            $amqpExchange->publish($payload, $delayQueueName, AMQP_NOPARAM, [
-                'correlation_id' => $correlationId,
-                'delivery_mode' => 2, // Persistent
-                'content_type' => 'application/json',
-            ]);
-
-            return $correlationId;
-        }
+        return $this->publishMessage($payload, $delayQueueName, $attempts);
     }
 
     /**
@@ -226,19 +186,21 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $amqpQueue->setName($queueName);
 
             if (($envelope = $amqpQueue->get(AMQP_AUTOACK)) !== false && $envelope !== null) {
-                return $this->rabbitMQJob = new $jobClass(
+                $this->rabbitMQJob = new $jobClass(
                     $this->container,
                     $this,
                     $envelope,
                     $this->connectionName,
                     $queueName
                 );
+
+                return $this->rabbitMQJob;
             }
 
             return null;
         } catch (AMQPChannelException $exception) {
             // If there is no queue AMQP will throw exception with code 404
-            if ($exception->getCode() === 404) {
+            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
                 // Create a new channel since the old one is closed
                 $this->amqpChannel = new AMQPChannel($this->connection);
 
@@ -343,6 +305,16 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         array $arguments = []
     ): void {
         try {
+            // Ensure connection is available before creating channel
+            if (! $this->connection->isConnected()) {
+                $this->connection->connect();
+            }
+
+            // Ensure channel is valid
+            if (! isset($this->amqpChannel) || ! $this->amqpChannel->getConnection()->isConnected()) {
+                $this->amqpChannel = new AMQPChannel($this->connection);
+            }
+
             $amqpQueue = new AMQPQueue($this->amqpChannel);
             $amqpQueue->setName($name);
             $amqpQueue->setFlags($durable ? AMQP_DURABLE : AMQP_NOPARAM);
@@ -356,11 +328,12 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             }
 
             $amqpQueue->declareQueue();
-        } catch (AMQPChannelException $exception) {
-            // If it's not a "queue already exists" case, re-throw
-            if ($exception->getCode() !== 406) {
+        } catch (AMQPChannelException|AMQPQueueException $exception) {
+            // If it's not a "queue already exists" or "unknown delivery tag" case, re-throw
+            if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
                 throw $exception;
             }
+            // Ignore 406 errors (queue already exists or unknown delivery tag)
         } catch (AMQPConnectionException $exception) {
             // Reopen channel and try again
             $this->amqpChannel = new AMQPChannel($this->connection);
@@ -396,7 +369,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             throw new Exception(sprintf('Class %s must extend: %s', $job, RabbitMQJob::class));
         }
 
-        return (string) $job;
+        return $job;
     }
 
     /**
@@ -404,28 +377,38 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      */
     public function reject(RabbitMQJob $rabbitMQJob, bool $requeue = false): void
     {
+        $envelope = $rabbitMQJob->getRabbitMQMessage();
+        $deliveryTag = $envelope->getDeliveryTag();
+
+        if ($deliveryTag === null) {
+            return;
+        }
+
         try {
-            $envelope = $rabbitMQJob->getRabbitMQMessage();
             $amqpQueue = new AMQPQueue($this->amqpChannel);
             $amqpQueue->setName($rabbitMQJob->getQueue());
-            $amqpQueue->reject($envelope->getDeliveryTag(), $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
+            $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
         } catch (AMQPChannelException|AMQPConnectionException $exception) {
             // Reopen channel and try again
             $this->amqpChannel = new AMQPChannel($this->connection);
-            $envelope = $rabbitMQJob->getRabbitMQMessage();
             $amqpQueue = new AMQPQueue($this->amqpChannel);
             $amqpQueue->setName($rabbitMQJob->getQueue());
-            $amqpQueue->reject($envelope->getDeliveryTag(), $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
+            $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
         }
     }
 
     /**
      * Acknowledge a job with retry logic.
      */
-    public function ack(RabbitMQJob $rabbitMQJob, int $maxRetries = 3, int $retryDelay = 1000): void
+    public function ack(RabbitMQJob $rabbitMQJob, int $maxRetries = self::MAX_RETRY_ATTEMPTS, int $retryDelay = self::DEFAULT_RETRY_DELAY): void
     {
         $envelope = $rabbitMQJob->getRabbitMQMessage();
         $deliveryTag = $envelope->getDeliveryTag();
+
+        if ($deliveryTag === null) {
+            return;
+        }
+
         $attempts = 0;
 
         while ($attempts < $maxRetries) {
@@ -498,7 +481,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return $amqpQueue->purge();
         } catch (AMQPChannelException $exception) {
             // If queue doesn't exist, just return
-            if ($exception->getCode() === 404) {
+            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
                 return null;
             }
 
@@ -525,7 +508,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return $amqpQueue->delete();
         } catch (AMQPChannelException $exception) {
             // If queue doesn't exist, just return
-            if ($exception->getCode() === 404) {
+            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
                 return null;
             }
 
@@ -536,5 +519,41 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
             return $this->deleteQueue($queueName);
         }
+    }
+
+    /**
+     * Publish a message to the queue with retry logic.
+     *
+     * @throws JsonException
+     */
+    private function publishMessage(string $payload, string $queueName, int $attempts = 2): string
+    {
+        $correlationId = $this->createMessage($payload, $attempts);
+        $messageAttributes = [
+            'correlation_id' => $correlationId,
+            'delivery_mode' => self::DELIVERY_MODE_PERSISTENT,
+            'content_type' => 'application/json',
+        ];
+
+        try {
+            return $this->doPublish($payload, $queueName, $messageAttributes);
+        } catch (AMQPChannelException|AMQPConnectionException) {
+            // Reopen channel and try again
+            $this->amqpChannel = new AMQPChannel($this->connection);
+
+            return $this->doPublish($payload, $queueName, $messageAttributes);
+        }
+    }
+
+    /**
+     * Perform the actual message publishing.
+     */
+    private function doPublish(string $payload, string $queueName, array $messageAttributes): string
+    {
+        $amqpExchange = new AMQPExchange($this->amqpChannel);
+        $amqpExchange->setName('');
+        $amqpExchange->publish($payload, $queueName, AMQP_NOPARAM, $messageAttributes);
+
+        return $messageAttributes['correlation_id'];
     }
 }

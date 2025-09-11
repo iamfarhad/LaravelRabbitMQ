@@ -1,97 +1,48 @@
-# Laravel RabbitMQ Queue Driver
+# Laravel RabbitMQ
 
 [![Latest Stable Version](https://poser.pugx.org/iamfarhad/laravel-rabbitmq/v/stable?format=flat-square)](https://packagist.org/packages/iamfarhad/laravel-rabbitmq)
 [![Total Downloads](https://poser.pugx.org/iamfarhad/laravel-rabbitmq/downloads?format=flat-square)](https://packagist.org/packages/iamfarhad/laravel-rabbitmq)
 [![License](https://poser.pugx.org/iamfarhad/laravel-rabbitmq/license?format=flat-square)](https://packagist.org/packages/iamfarhad/laravel-rabbitmq)
 [![Tests](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/tests.yml/badge.svg)](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/test.yml)
-[![Coding Standards](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/code-style.yml/badge.svg)](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/code-style.yml)
 
-A robust and production-ready RabbitMQ queue driver implementation for Laravel, providing advanced message queuing capabilities with high performance, reliability, and enterprise-grade features. Built with modern PHP architecture and extensive testing.
+A RabbitMQ queue driver for Laravel featuring native Laravel Queue API integration with advanced message queuing capabilities.
 
-## Features
+## Table of Contents
 
-### Core Functionality
-- **Native Laravel Queue API Integration** - Drop-in replacement for Laravel's default queue drivers
-- **Advanced Message Processing** - Support for delayed/scheduled jobs with precise timing
-- **Priority Queues** - Process high-priority messages first
-- **Parallel Processing** - Multiple consumer processes for improved throughput
-- **Error Handling & Retries** - Robust failure handling with automatic retries and backoff strategies
-
-### Enterprise Features
-- **SSL/TLS Secure Connections** - Production-ready encrypted communication
-- **Quality of Service (QoS)** - Fine-grained control over message prefetching and processing
-- **Dead Letter Exchanges** - Automatic handling of failed messages
-- **Queue Management** - Automatic queue creation, binding, and management
-- **Connection Management** - Lazy connections, keepalive, and heartbeat support
-
-### Developer Experience
-- **Comprehensive Testing** - Extensive test suite with PHPUnit framework
-- **Modern Architecture** - Clean separation of concerns with contracts and dedicated components
-- **Docker Ready** - Optimized for containerized environments
-- **Monitoring Support** - Integration-ready for monitoring and observability tools
-
-## Architecture
-
-This package follows modern PHP architecture principles with clear separation of concerns:
-
-### Core Components
-
-- **`LaravelRabbitQueueServiceProvider`** - Main service provider handling registration and bootstrapping
-- **`RabbitMQConnector`** - Manages RabbitMQ connections and queue instances
-- **`RabbitQueue`** - Core queue implementation with AMQP protocol handling
-- **`Consumer`** - Advanced message consumer with daemon capabilities
-- **`ConsumeCommand`** - Artisan command for dedicated RabbitMQ message consumption
-
-### Contracts & Interfaces
-
-- **`ConsumerInterface`** - Defines consumer behavior and lifecycle management
-- **`RabbitQueueInterface`** - Extends Laravel's Queue contract with RabbitMQ-specific methods
-
-### Support Classes
-
-- **`RabbitMQJob`** - Represents a queued job with RabbitMQ-specific features
-- **`MessageHelpers`** - Utility functions for message handling and processing
-- **Exception Classes** - Specific exceptions for different error scenarios
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Advanced Features](#advanced-features)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Requirements
 
-- **PHP 8.2+** - Modern PHP with improved performance and type safety (including PHP 8.3 and 8.4)
-- **Laravel 11.x or 12.x** - Latest Laravel versions with enhanced queue features
-- **RabbitMQ Server 3.8+** - Production-ready message broker
-- **ext-amqp** - Native AMQP extension for optimal performance
-- **ext-pcntl** - Required for parallel processing capabilities
-
-## Support Policy
-
-| Package Version | Laravel Version | PHP Version | Bug Fixes Until   |
-|-----------------|-----------------|-------------|-------------------|
-| 1.0.x           | 11.x, 12.x      | 8.2, 8.3, 8.4 | December 2025     |
+- PHP 8.2 or higher
+- Laravel 11.x or 12.x
+- RabbitMQ Server 3.8+
+- ext-amqp PHP extension
+- ext-pcntl PHP extension (for parallel processing)
 
 ## Installation
 
-### Via Composer
-
-Install the package via Composer:
+### Install via Composer
 
 ```bash
 composer require iamfarhad/laravel-rabbitmq
 ```
 
-The package will automatically register itself through Laravel's package discovery.
-
 ### Publish Configuration
-
-Publish the configuration file to customize settings:
 
 ```bash
 php artisan vendor:publish --provider="iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider" --tag="config"
 ```
 
-This will create `config/rabbitmq.php` with all available configuration options.
+### Lumen Installation
 
-### For Lumen
-
-For Lumen applications, manually register the service provider in `bootstrap/app.php`:
+Register the service provider in `bootstrap/app.php`:
 
 ```php
 $app->register(iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider::class);
@@ -99,18 +50,16 @@ $app->register(iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider::clas
 
 ## Configuration
 
-### Queue Connection Setup
+### 1. Update Queue Configuration
 
-Add the RabbitMQ connection to your `config/queue.php` file:
+Add the RabbitMQ connection to `config/queue.php`:
 
 ```php
 'connections' => [
-    // ... other connections
-    
     'rabbitmq' => [
         'driver' => 'rabbitmq',
         'queue'  => env('RABBITMQ_QUEUE', 'default'),
-
+        
         'hosts' => [
             'host'      => env('RABBITMQ_HOST', '127.0.0.1'),
             'port'      => env('RABBITMQ_PORT', 5672),
@@ -122,14 +71,14 @@ Add the RabbitMQ connection to your `config/queue.php` file:
             'heartbeat' => env('RABBITMQ_HEARTBEAT_CONNECTION', 0),
             'secure'    => env('RABBITMQ_SECURE', false),
         ],
-
+        
         'options' => [
             'ssl_options' => [
-                'cafile'      => env('RABBITMQ_SSL_CAFILE', null),
-                'local_cert'  => env('RABBITMQ_SSL_LOCALCERT', null),
-                'local_key'   => env('RABBITMQ_SSL_LOCALKEY', null),
+                'cafile'      => env('RABBITMQ_SSL_CAFILE'),
+                'local_cert'  => env('RABBITMQ_SSL_LOCALCERT'),
+                'local_key'   => env('RABBITMQ_SSL_LOCALKEY'),
                 'verify_peer' => env('RABBITMQ_SSL_VERIFY_PEER', true),
-                'passphrase'  => env('RABBITMQ_SSL_PASSPHRASE', null),
+                'passphrase'  => env('RABBITMQ_SSL_PASSPHRASE'),
             ],
             'queue' => [
                 'job' => \iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class,
@@ -144,14 +93,12 @@ Add the RabbitMQ connection to your `config/queue.php` file:
 ]
 ```
 
-### Environment Variables
+### 2. Environment Configuration
 
-Add these environment variables to your `.env` file:
+Add to your `.env` file:
 
 ```env
-# Queue Configuration
 QUEUE_CONNECTION=rabbitmq
-RABBITMQ_QUEUE=default
 
 # RabbitMQ Connection
 RABBITMQ_HOST=127.0.0.1
@@ -159,52 +106,41 @@ RABBITMQ_PORT=5672
 RABBITMQ_USER=guest
 RABBITMQ_PASSWORD=guest
 RABBITMQ_VHOST=/
+RABBITMQ_QUEUE=default
 
 # Connection Options
 RABBITMQ_LAZY_CONNECTION=true
 RABBITMQ_KEEPALIVE_CONNECTION=false
 RABBITMQ_HEARTBEAT_CONNECTION=0
 
-# SSL/TLS (Optional)
+# SSL/TLS Configuration (Optional)
 RABBITMQ_SECURE=false
-# RABBITMQ_SSL_CAFILE=/path/to/ca.pem
-# RABBITMQ_SSL_LOCALCERT=/path/to/cert.pem
-# RABBITMQ_SSL_LOCALKEY=/path/to/key.pem
-# RABBITMQ_SSL_VERIFY_PEER=true
+#RABBITMQ_SSL_CAFILE=/path/to/ca.pem
+#RABBITMQ_SSL_LOCALCERT=/path/to/cert.pem
+#RABBITMQ_SSL_LOCALKEY=/path/to/key.pem
+#RABBITMQ_SSL_VERIFY_PEER=true
 ```
 
-### Docker Environment
+## Usage
 
-For Docker deployments, typical configuration might look like:
-
-```env
-RABBITMQ_HOST=rabbitmq
-RABBITMQ_PORT=5672
-RABBITMQ_USER=laravel
-RABBITMQ_PASSWORD=secret
-RABBITMQ_VHOST=app
-```
-
-## Basic Usage
-
-Once configured, you can use Laravel's Queue API as normal. If you're already familiar with Laravel queues, you don't need to change anything in your code.
-
-### Dispatching Jobs
+### Basic Job Dispatching
 
 ```php
-// Dispatch a job to the default queue
+// Dispatch to default queue
 dispatch(new ProcessPodcast($podcast));
 
-// Dispatch a job to a specific queue
+// Dispatch to specific queue
 dispatch(new ProcessPodcast($podcast))->onQueue('podcasts');
 
-// Dispatch a job with delay
+// Delayed dispatch
 dispatch(new ProcessPodcast($podcast))->delay(now()->addMinutes(10));
 ```
 
 ### Creating Jobs
 
 ```php
+<?php
+
 namespace App\Jobs;
 
 use Illuminate\Bus\Queueable;
@@ -217,34 +153,26 @@ class ProcessPodcast implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(private $podcast)
-    {
-        // Specify a custom queue
-        $this->onQueue('podcasts');
-    }
+    public function __construct(
+        public Podcast $podcast
+    ) {}
 
-    public function handle()
+    public function handle(): void
     {
         // Process the podcast...
     }
 }
 ```
 
-## Message Consumption
+### Running Workers
 
-This package provides two consumption methods, each optimized for different use cases:
-
-### 1. Standard Laravel Queue Worker
-
-Laravel's built-in queue worker for simple use cases:
+#### Standard Laravel Worker
 
 ```bash
 php artisan queue:work rabbitmq --queue=default
 ```
 
-### 2. Dedicated RabbitMQ Consumer (Recommended)
-
-High-performance consumer optimized for RabbitMQ with `basic_consume`:
+#### Dedicated RabbitMQ Consumer (Recommended)
 
 ```bash
 php artisan rabbitmq:consume --queue=default
@@ -252,241 +180,170 @@ php artisan rabbitmq:consume --queue=default
 
 ### Consumer Command Options
 
-```bash
-php artisan rabbitmq:consume [connection] [options]
-```
-
-#### Core Options
-- `connection` - The queue connection name (optional, defaults to default)
-- `--queue=` - The queue names to consume from (can specify multiple)
-- `--name=default` - Consumer name for identification
-- `--consumer-tag` - Custom consumer tag for RabbitMQ
-
-#### Processing Control
-- `--once` - Process only one job and exit
-- `--stop-when-empty` - Stop when queue is empty
-- `--max-jobs=0` - Maximum jobs before stopping (0 = unlimited)
-- `--max-time=0` - Maximum runtime in seconds (0 = unlimited)
-- `--memory=128` - Memory limit in megabytes
-
-#### Error Handling
-- `--delay=0` - Delay for failed jobs (seconds)
-- `--backoff=0` - Backoff time after uncaught exceptions
-- `--tries=1` - Number of retry attempts
-- `--timeout=60` - Job timeout in seconds
-- `--rest=0` - Rest time between jobs
-
-#### Performance
-- `--num-processes=2` - Number of parallel processes
-- `--max-priority=null` - Maximum priority level to consume
-- `--sleep=3` - Sleep time when no jobs available
-
-#### Advanced
-- `--force` - Run even in maintenance mode
-
-### Parallel Processing Example
-
-Run multiple consumer processes for high throughput:
-
-```bash
-# Single queue with 4 parallel processes
-php artisan rabbitmq:consume --queue=high-priority --num-processes=4
-
-# Multiple queues with priority handling
-php artisan rabbitmq:consume --queue=critical,high,normal --max-priority=10
-```
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--queue` | Queue names to process (comma separated) | default |
+| `--once` | Process single job and exit | false |
+| `--stop-when-empty` | Stop when queue is empty | false |
+| `--delay` | Delay for failed jobs (seconds) | 0 |
+| `--memory` | Memory limit in MB | 128 |
+| `--timeout` | Job timeout in seconds | 60 |
+| `--tries` | Number of attempts | 1 |
+| `--sleep` | Sleep when no jobs available | 3 |
+| `--num-processes` | Number of parallel processes | 2 |
+| `--max-jobs` | Maximum jobs before restart | 0 |
+| `--max-time` | Maximum runtime in seconds | 0 |
 
 ## Advanced Features
 
 ### Priority Queues
 
-Implement priority-based message processing:
+Enable priority-based processing:
 
 ```php
-// Configure queue with maximum priority (1-255)
+// In config/queue.php
 'options' => [
     'queue' => [
-        'qos' => [
-            'prefetch_count' => 10,
-            'global' => false
-        ],
-        'max_priority' => 10, // Enable priority queues
+        'arguments' => [
+            'x-max-priority' => 10
+        ]
     ]
 ]
 
-// Dispatch job with priority
-$job = new ProcessUrgentTask($data);
-dispatch($job->onQueue('urgent-tasks')->withProperty('priority', 8));
+// Dispatch with priority
+dispatch(new UrgentJob($data))->onQueue('priority')->withPriority(8);
 ```
 
 ### Quality of Service (QoS)
 
-Fine-tune message delivery performance:
+Configure message prefetching:
 
 ```php
 'options' => [
     'queue' => [
         'qos' => [
-            'prefetch_size'  => 0,     // No size limit (recommended)
-            'prefetch_count' => 10,    // Messages to prefetch per consumer
-            'global'         => false  // Apply per consumer (recommended)
+            'prefetch_size'  => 0,
+            'prefetch_count' => 10,
+            'global'         => false
         ]
     ]
 ]
 ```
 
-#### QoS Guidelines:
-- **High throughput**: `prefetch_count: 20-50`
-- **Memory constrained**: `prefetch_count: 1-5`
-- **Balanced processing**: `prefetch_count: 10-15`
+### SSL/TLS Support
 
-### SSL/TLS Secure Connections
-
-Enable encrypted connections for production environments:
+Enable secure connections:
 
 ```php
-// In config/queue.php
 'hosts' => [
     'secure' => true,
-    // ... other host config
+    // other host config...
 ],
 
 'options' => [
     'ssl_options' => [
-        'cafile'      => '/path/to/ca-certificates.pem',
-        'local_cert'  => '/path/to/client-cert.pem',
-        'local_key'   => '/path/to/client-key.pem',
+        'cafile'      => '/path/to/ca.pem',
+        'local_cert'  => '/path/to/cert.pem',
+        'local_key'   => '/path/to/key.pem',
         'verify_peer' => true,
-        'verify_peer_name' => true,
-        'passphrase'  => env('RABBITMQ_SSL_PASSPHRASE'),
     ],
 ]
 ```
 
-### Connection Management
+### Failed Job Handling
 
-Optimize connection handling for different scenarios:
+Configure retry behavior in your job:
 
 ```php
-'hosts' => [
-    'lazy'      => true,  // Connect only when needed (recommended)
-    'keepalive' => false, // Disable for short-lived processes
-    'heartbeat' => 60,    // Enable for long-running consumers
-],
+class ProcessPayment implements ShouldQueue
+{
+    public $tries = 3;
+    public $maxExceptions = 2;
+    public $backoff = [1, 5, 10];
+
+    public function retryUntil(): DateTime
+    {
+        return now()->addMinutes(15);
+    }
+
+    public function failed(Throwable $exception): void
+    {
+        // Handle failure
+    }
+}
 ```
 
-### Queue Management API
-
-Programmatically manage queues:
+### Queue Management
 
 ```php
 use iamfarhad\LaravelRabbitMQ\Facades\RabbitMQ;
 
 // Check if queue exists
 if (RabbitMQ::queueExists('my-queue')) {
-    // Queue operations
+    // Queue exists
 }
 
-// Declare queue with options
-RabbitMQ::declareQueue('priority-queue', $durable = true, $autoDelete = false, [
-    'x-max-priority' => 10
-]);
+// Declare a new queue
+RabbitMQ::declareQueue('my-queue', $durable = true);
 
-// Purge queue
-RabbitMQ::purgeQueue('test-queue');
+// Purge queue messages
+RabbitMQ::purgeQueue('my-queue');
 
 // Delete queue
-RabbitMQ::deleteQueue('temporary-queue');
+RabbitMQ::deleteQueue('my-queue');
 ```
 
-## Error Handling & Reliability
+## Production Deployment
 
-### Automatic Retry Logic
+### Supervisor Configuration
 
-Failed jobs are automatically retried based on configuration:
-
-```php
-// In your job class
-class ProcessPayment implements ShouldQueue
-{
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-
-    public $tries = 3;           // Number of attempts
-    public $maxExceptions = 2;   // Max exceptions before failing
-    public $backoff = [1, 5, 10]; // Progressive backoff in seconds
-
-    public function retryUntil()
-    {
-        return now()->addMinutes(15); // Stop retrying after 15 minutes
-    }
-
-    public function failed(Throwable $exception)
-    {
-        // Send user notification of failed payment
-        // Log to monitoring system
-    }
-}
+```ini
+[program:laravel-rabbitmq]
+process_name=%(program_name)s_%(process_num)02d
+command=php /path/to/artisan rabbitmq:consume --queue=default --memory=256
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=4
+redirect_stderr=true
+stdout_logfile=/path/to/logs/rabbitmq.log
+stopwaitsecs=3600
 ```
 
-### Error Types & Handling
+### Docker Setup
 
-```php
-// Temporary failures (will retry)
-if ($temporaryIssue) {
-    $this->release(30); // Retry in 30 seconds
-}
+```yaml
+version: '3.8'
 
-// Permanent failures (won't retry)
-if ($permanentIssue) {
-    $this->fail('Invalid payment data');
-}
+services:
+  app:
+    build: .
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: laravel
+      RABBITMQ_PASSWORD: secret
+    depends_on:
+      - rabbitmq
 
-// Conditional retries
-public function shouldRetry(\Throwable $exception): bool
-{
-    return !($exception instanceof \InvalidArgumentException);
-}
-```
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: laravel
+      RABBITMQ_DEFAULT_PASS: secret
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
 
-### Dead Letter Queues
-
-Configure dead letter exchanges for failed messages:
-
-```php
-'options' => [
-    'queue' => [
-        'arguments' => [
-            'x-dead-letter-exchange' => 'failed-jobs',
-            'x-dead-letter-routing-key' => 'failed',
-            'x-message-ttl' => 86400000, // 24 hours in milliseconds
-        ]
-    ]
-]
-```
-
-### Monitoring & Observability
-
-Integrate with monitoring systems:
-
-```php
-public function failed(\Throwable $exception)
-{
-    // Log to your monitoring service
-    Log::error('Job failed', [
-        'job' => static::class,
-        'queue' => $this->queue,
-        'attempts' => $this->attempts(),
-        'exception' => $exception->getMessage(),
-    ]);
-
-    // Report to external monitoring
-    report($exception);
-}
+volumes:
+  rabbitmq_data:
 ```
 
 ## Testing
-
-This package includes comprehensive testing with PHPUnit:
 
 ### Running Tests
 
@@ -494,113 +351,93 @@ This package includes comprehensive testing with PHPUnit:
 # Run all tests
 composer test
 
-# Run unit tests only
+# Run specific test suites
 composer test:unit
-
-# Run feature tests only
 composer test:feature
 
-# Format code
+# Code formatting
 composer format
-
-# Check code formatting
 composer format-test
 ```
 
-### Test Categories
+### Test Environment
 
-- **Unit Tests** - Test individual components in isolation
-- **Feature Tests** - Test complete workflows and integrations
-- **Integration Tests** - Test with actual RabbitMQ server
-
-### Test Environment Setup
-
-For integration tests, ensure RabbitMQ is running:
+Set up RabbitMQ for testing:
 
 ```bash
-# Using Docker
 docker run -d --name rabbitmq-test \
   -p 5672:5672 -p 15672:15672 \
-  -e RABBITMQ_DEFAULT_USER=laravel \
-  -e RABBITMQ_DEFAULT_PASS=secret \
-  -e RABBITMQ_DEFAULT_VHOST=b2b-field \
   rabbitmq:3-management
 ```
 
-## Performance Optimization
+## Troubleshooting
 
-### Production Recommendations
+### Common Issues
 
-1. **Use dedicated consumer processes**:
-   ```bash
-   php artisan rabbitmq:consume --num-processes=4 --memory=256
-   ```
+#### Connection Refused
 
-2. **Optimize QoS settings**:
-   ```php
-   'prefetch_count' => 20, // Higher for CPU-bound jobs
-   'prefetch_count' => 5,  // Lower for memory-intensive jobs
-   ```
+Ensure RabbitMQ is running and accessible:
 
-3. **Enable connection pooling**:
-   ```php
-   'lazy' => true,
-   'keepalive' => true,
-   'heartbeat' => 60,
-   ```
+```bash
+# Check RabbitMQ status
+docker ps | grep rabbitmq
 
-4. **Use supervisor for process management**:
-   ```ini
-   [program:rabbitmq-consumer]
-   command=php artisan rabbitmq:consume --queue=default
-   autostart=true
-   autorestart=true
-   user=www-data
-   numprocs=4
-   ```
+# Test connection
+telnet localhost 5672
+```
 
-### Monitoring Metrics
+#### Permission Denied
 
-Monitor these key metrics in production:
+Verify user permissions in RabbitMQ:
 
-- **Queue depth** - Messages waiting to be processed
-- **Consumer throughput** - Messages processed per second
-- **Error rates** - Failed job percentage
-- **Processing time** - Average job execution time
-- **Memory usage** - Consumer memory consumption
+```bash
+# Access RabbitMQ management UI
+# http://localhost:15672
+# Default: guest/guest
+```
+
+#### Memory Issues
+
+Adjust consumer memory limits:
+
+```bash
+php artisan rabbitmq:consume --memory=512
+```
+
+## Architecture
+
+### Components
+
+- **RabbitQueue**: Core queue implementation
+- **Consumer**: Message consumer with daemon support
+- **RabbitMQJob**: Job representation with RabbitMQ features
+- **RabbitMQConnector**: Connection management
+- **ConsumeCommand**: Artisan command for consumption
+
+### Contracts
+
+- **RabbitQueueInterface**: Extended queue contract
 
 ## Contributing
 
-We welcome contributions! Please follow these guidelines:
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-### Development Setup
-
-1. Fork and clone the repository
-2. Install dependencies: `composer install`
-3. Set up testing environment (see Testing section)
-4. Run tests: `composer test`
-
-### Code Standards
+### Development Standards
 
 - Follow PSR-12 coding standards
-- Write comprehensive tests for new features
-- Update documentation for API changes
-- Use meaningful commit messages
+- Write tests for new features
+- Update documentation
+- Use conventional commits
 
-### Pull Request Process
+## Support
 
-1. Create feature branch: `git checkout -b feature/amazing-feature`
-2. Write tests for your changes
-3. Ensure all tests pass: `composer test`
-4. Format code: `composer format`
-5. Commit changes: `git commit -m 'feat: add amazing feature'`
-6. Push branch: `git push origin feature/amazing-feature`
-7. Open a Pull Request with detailed description
+- [Issues](https://github.com/iamfarhad/LaravelRabbitMQ/issues)
+- [Discussions](https://github.com/iamfarhad/LaravelRabbitMQ/discussions)
 
 ## License
 
 This package is open-sourced software licensed under the [MIT license](LICENSE).
-
----
-
-**Built with ❤️ for the Laravel community**

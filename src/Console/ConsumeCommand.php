@@ -88,7 +88,6 @@ final class ConsumeCommand extends WorkCommand
             // Parent process
             $childPids[] = $pid;
             $this->info("Started worker process $pid");
-
         }
 
         // Set up signal handling for graceful termination
@@ -132,7 +131,7 @@ final class ConsumeCommand extends WorkCommand
             }
 
             $consumer->setContainer($this->laravel);
-            $consumer->setName($this->option('name'));
+            $consumer->setName((string) $this->option('name'));
             $consumer->setConsumerTag($this->generateConsumerTag());
 
             // Only set max priority if it's provided and not null
@@ -154,8 +153,9 @@ final class ConsumeCommand extends WorkCommand
      */
     private function generateConsumerTag(): string
     {
-        if ($consumerTag = $this->option('consumer-tag')) {
-            return $consumerTag;
+        $consumerTag = $this->option('consumer-tag');
+        if ($consumerTag !== null && $consumerTag !== false && $consumerTag !== '') {
+            return (string) $consumerTag;
         }
 
         $appName = config('app.name', 'laravel');
@@ -166,7 +166,7 @@ final class ConsumeCommand extends WorkCommand
             '_',
             [
                 Str::slug($appName),
-                Str::slug($consumerName),
+                Str::slug((string) $consumerName),
                 $uniqueId,
             ]
         );

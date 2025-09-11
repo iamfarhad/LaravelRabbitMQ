@@ -1,10 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace iamfarhad\LaravelRabbitMQ\Exceptions;
 
 use Exception;
 
-class RabbitMQException extends Exception
+abstract class RabbitMQException extends Exception
 {
     //
 }
