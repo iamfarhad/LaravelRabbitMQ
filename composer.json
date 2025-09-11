@@ -1,22 +1,42 @@
 {
     "name": "iamfarhad/laravel-rabbitmq",
-    "description": "RabbitMQ driver for Laravel Queue with advanced message queuing capabilities",
+    "description": "A robust RabbitMQ driver for Laravel Queue with advanced message queuing, reliable delivery, and high-performance async processing capabilities",
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://github.com/iamfarhad/laravel-rabbitmq",
     "keywords": [
         "laravel",
-        "queue",
+        "laravel-queue",
         "rabbitmq",
         "amqp",
         "message-queue",
-        "php"
+        "queue-driver",
+        "async-processing",
+        "message-broker",
+        "distributed-systems",
+        "microservices",
+        "event-driven",
+        "pub-sub",
+        "reliable-messaging",
+        "high-performance",
+        "scalable",
+        "php",
+        "laravel-package",
+        "queue-management",
+        "background-jobs",
+        "task-queue"
     ],
-    "license": "MIT",
-    "type": "library",
     "authors": [
         {
-            "name": "Farhad zand",
-            "email": "farhad.pd@gmail.com"
+            "name": "Farhad Zand",
+            "email": "farhad.pd@gmail.com",
+            "role": "Developer"
         }
     ],
+    "support": {
+        "issues": "https://github.com/iamfarhad/laravel-rabbitmq/issues",
+        "source": "https://github.com/iamfarhad/laravel-rabbitmq"
+    },
     "require": {
         "php": "^8.2",
         "ext-amqp": "*",
@@ -46,11 +66,23 @@
         "test": "vendor/bin/phpunit",
         "test:unit": "vendor/bin/phpunit --testsuite Unit",
         "test:feature": "vendor/bin/phpunit --testsuite Feature",
+        "test:coverage": "vendor/bin/phpunit --coverage-html build/coverage",
+        "analyse": "vendor/bin/phpstan analyse",
         "format": "vendor/bin/pint",
-        "format-test": "vendor/bin/pint --test"
+        "format-test": "vendor/bin/pint --test",
+        "check": [
+            "@format-test",
+            "@analyse",
+            "@test"
+        ]
     },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        },
+        "optimize-autoloader": true,
+        "preferred-install": "dist"
     },
     "extra": {
         "laravel": {
