@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Connectors;
 
-use AMQPConnection;
-use AMQPConnectionException;
+use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Exceptions\ConnectionException;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -13,8 +12,10 @@ use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Queue\Connectors\ConnectorInterface;
 use Illuminate\Queue\Events\WorkerStopping;
 
-readonly class RabbitMQConnector implements ConnectorInterface
+class RabbitMQConnector implements ConnectorInterface
 {
+    private static ?PoolManager $poolManager = null;
+
     public function __construct(private Dispatcher $dispatcher) {}
 
     /**
@@ -22,50 +23,53 @@ readonly class RabbitMQConnector implements ConnectorInterface
      */
     public function connect(array $config = []): Queue
     {
-        $connectionConfig = [
-            'host' => config('queue.connections.rabbitmq.hosts.host', '127.0.0.1'),
-            'port' => config('queue.connections.rabbitmq.hosts.port', 5672),
-            'login' => config('queue.connections.rabbitmq.hosts.user', 'guest'),
-            'password' => config('queue.connections.rabbitmq.hosts.password', 'guest'),
-            'vhost' => config('queue.connections.rabbitmq.hosts.vhost', '/'),
-        ];
+        // Get the full RabbitMQ configuration
+        $rabbitConfig = config('queue.connections.rabbitmq', []);
 
-        // Add optional connection parameters
-        if (config('queue.connections.rabbitmq.hosts.heartbeat')) {
-            $connectionConfig['heartbeat'] = config('queue.connections.rabbitmq.hosts.heartbeat');
+        // Initialize pool manager if not already done (singleton pattern)
+        if (self::$poolManager === null) {
+            self::$poolManager = new PoolManager($rabbitConfig);
         }
 
-        if (config('queue.connections.rabbitmq.hosts.read_timeout')) {
-            $connectionConfig['read_timeout'] = config('queue.connections.rabbitmq.hosts.read_timeout');
-        }
+        $defaultQueue = $rabbitConfig['queue'] ?? 'default';
+        $options = $rabbitConfig['options'] ?? [];
 
-        if (config('queue.connections.rabbitmq.hosts.write_timeout')) {
-            $connectionConfig['write_timeout'] = config('queue.connections.rabbitmq.hosts.write_timeout');
-        }
+        // Create RabbitQueue with pool manager
+        $rabbitQueue = new RabbitQueue(
+            self::$poolManager,
+            $defaultQueue,
+            $options,
+            false, // dispatchAfterCommit
+            'rabbitmq' // connectionName
+        );
 
-        if (config('queue.connections.rabbitmq.hosts.connect_timeout')) {
-            $connectionConfig['connect_timeout'] = config('queue.connections.rabbitmq.hosts.connect_timeout');
-        }
-
-        // Create AMQP Connection
-        try {
-            $connection = new AMQPConnection($connectionConfig);
-            $connection->connect();
-        } catch (AMQPConnectionException $e) {
-            throw new ConnectionException(
-                'Failed to connect to RabbitMQ: '.$e->getMessage(),
-                $e->getCode(),
-                $e
-            );
-        }
-
-        $defaultQueue = config('queue.connections.rabbitmq.queue', 'default');
-        $options = config('queue.connections.rabbitmq.options', []);
-
-        $rabbitQueue = new RabbitQueue($connection, $defaultQueue, $options);
-
-        $this->dispatcher->listen(WorkerStopping::class, fn () => $rabbitQueue->close());
+        // Register cleanup listener
+        $this->dispatcher->listen(WorkerStopping::class, function () {
+            if (self::$poolManager) {
+                self::$poolManager->closeAll();
+                self::$poolManager = null;
+            }
+        });
 
         return $rabbitQueue;
+    }
+
+    /**
+     * Get the pool manager instance (for testing or advanced use)
+     */
+    public static function getPoolManager(): ?PoolManager
+    {
+        return self::$poolManager;
+    }
+
+    /**
+     * Reset the pool manager (for testing)
+     */
+    public static function resetPoolManager(): void
+    {
+        if (self::$poolManager) {
+            self::$poolManager->closeAll();
+        }
+        self::$poolManager = null;
     }
 }

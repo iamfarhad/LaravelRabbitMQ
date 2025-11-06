@@ -48,6 +48,15 @@ abstract class TestCase extends Orchestra
                     'prefetch_count' => 10,
                 ],
             ],
+            'pool' => [
+                'max_connections' => 50, // Increased for tests
+                'min_connections' => 1,  // Reduced for tests
+                'max_channels_per_connection' => 100,
+                'max_retries' => 3,
+                'retry_delay' => 1000,
+                'health_check_enabled' => false, // Disabled for tests
+                'health_check_interval' => 30,
+            ],
         ]);
     }
 
@@ -70,6 +79,25 @@ abstract class TestCase extends Orchestra
             }
         } catch (\Exception $e) {
             // Ignore cleanup errors in tests
+        }
+
+        // Reset the static pool manager to prevent connection accumulation between tests
+        try {
+            $reflection = new \ReflectionClass(\iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector::class);
+            $property = $reflection->getProperty('poolManager');
+            $property->setAccessible(true);
+            $poolManager = $property->getValue(null);
+            if ($poolManager) {
+                $poolManager->closeAll();
+            }
+            $property->setValue(null, null);
+        } catch (\Exception $e) {
+            // Ignore cleanup errors
+        }
+
+        // Reset Mockery to prevent mocks from leaking between tests
+        if (class_exists('Mockery')) {
+            \Mockery::close();
         }
 
         parent::tearDown();

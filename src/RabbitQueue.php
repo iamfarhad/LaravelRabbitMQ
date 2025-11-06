@@ -12,13 +12,18 @@ use AMQPExchange;
 use AMQPQueue;
 use AMQPQueueException;
 use Exception;
+use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Contracts\RabbitQueueInterface;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
+use iamfarhad\LaravelRabbitMQ\Support\ExchangeManager;
+use iamfarhad\LaravelRabbitMQ\Support\ExponentialBackoff;
 use iamfarhad\LaravelRabbitMQ\Support\MessageHelpers;
+use iamfarhad\LaravelRabbitMQ\Support\PublisherConfirms;
+use iamfarhad\LaravelRabbitMQ\Support\RpcClient;
+use iamfarhad\LaravelRabbitMQ\Support\TransactionManager;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Queue\Queue;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Log;
 use JsonException;
 use Throwable;
 
@@ -34,23 +39,57 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     private const MAX_RETRY_ATTEMPTS = 3;
 
-    private AMQPChannel $amqpChannel;
+    private ?AMQPChannel $amqpChannel = null;
 
     private ?RabbitMQJob $rabbitMQJob = null;
 
+    private ?ExchangeManager $exchangeManager = null;
+
+    private ?ExponentialBackoff $backoff = null;
+
+    private ?PublisherConfirms $publisherConfirms = null;
+
+    private ?TransactionManager $transactionManager = null;
+
+    private ?RpcClient $rpcClient = null;
+
     public function __construct(
-        protected readonly AMQPConnection $connection,
+        protected readonly PoolManager $poolManager,
         protected readonly string $defaultQueue = 'default',
         protected array $options = [],
         bool $dispatchAfterCommit = false,
+        string $connectionName = 'rabbitmq',
     ) {
-        $this->amqpChannel = new AMQPChannel($this->connection);
+        $this->connectionName = $connectionName;
         $this->dispatchAfterCommit = $dispatchAfterCommit;
     }
 
     public function getConnection(): AMQPConnection
     {
-        return $this->connection;
+        return $this->poolManager->getConnection();
+    }
+
+    /**
+     * Get a channel from the pool
+     */
+    public function getChannel(): AMQPChannel
+    {
+        if ($this->amqpChannel === null) {
+            $this->amqpChannel = $this->poolManager->getChannel();
+        }
+
+        return $this->amqpChannel;
+    }
+
+    /**
+     * Release the current channel back to the pool
+     */
+    private function releaseChannel(): void
+    {
+        if ($this->amqpChannel !== null) {
+            $this->poolManager->releaseChannel($this->amqpChannel);
+            $this->amqpChannel = null;
+        }
     }
 
     /**
@@ -61,7 +100,8 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         $queueName = $this->getQueue($queue);
 
         try {
-            $amqpQueue = new AMQPQueue($this->amqpChannel);
+            $channel = $this->getChannel();
+            $amqpQueue = new AMQPQueue($channel);
             $amqpQueue->setName($queueName);
             $amqpQueue->setFlags(AMQP_PASSIVE);
 
@@ -92,7 +132,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $this->createPayload($job, $this->getQueue($queue), $data),
             $queue,
             null,
-            fn ($payload, $queue) => $this->pushRaw($payload, $queue)
+            fn($payload, $queue) => $this->pushRaw($payload, $queue)
         );
     }
 
@@ -131,7 +171,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $this->createPayload($job, $this->getQueue($queue), $data),
             $queue,
             $delay,
-            fn ($payload, $queue, $delay) => $this->laterRaw($delay, $payload, $queue)
+            fn($payload, $queue, $delay) => $this->laterRaw($delay, $payload, $queue)
         );
     }
 
@@ -155,7 +195,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         }
 
         $queueName = $this->getQueue($queue);
-        $delayQueueName = $queueName.'.delay.'.$ttl;
+        $delayQueueName = $queueName . '.delay.' . $ttl;
 
         $this->declareDelayQueue($delayQueueName, $queueName, $ttl);
 
@@ -182,10 +222,12 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
             $jobClass = $this->getJobClass();
 
-            $amqpQueue = new AMQPQueue($this->amqpChannel);
+            $amqpQueue = new AMQPQueue($this->getChannel());
             $amqpQueue->setName($queueName);
 
-            if (($envelope = $amqpQueue->get(AMQP_AUTOACK)) !== false && $envelope !== null) {
+            // Use AMQP_NOPARAM to get message without auto-ack
+            // This allows the job to manually acknowledge after processing
+            if (($envelope = $amqpQueue->get(AMQP_NOPARAM)) !== false && $envelope !== null) {
                 $this->rabbitMQJob = new $jobClass(
                     $this->container,
                     $this,
@@ -202,7 +244,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             // If there is no queue AMQP will throw exception with code 404
             if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
                 // Create a new channel since the old one is closed
-                $this->amqpChannel = new AMQPChannel($this->connection);
+                $this->releaseChannel();
 
                 // Try to create the queue and retry
                 try {
@@ -218,13 +260,11 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         } catch (AMQPConnectionException $exception) {
             // Replace with a more specific exception that Laravel's worker can detect as a lost connection
             throw new Exception(
-                'Lost connection: '.$exception->getMessage(),
+                'Lost connection: ' . $exception->getMessage(),
                 $exception->getCode(),
                 $exception
             );
         }
-
-        return null;
     }
 
     /**
@@ -241,7 +281,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     public function queueExists(string $queueName): bool
     {
         try {
-            $channel = new AMQPChannel($this->connection);
+            $channel = $this->getChannel();
             $amqpQueue = new AMQPQueue($channel);
             $amqpQueue->setName($queueName);
             $amqpQueue->setFlags(AMQP_PASSIVE);
@@ -260,7 +300,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     }
 
     /**
-     * Close the connection.
+     * Close the connection and release resources.
      */
     public function close(): void
     {
@@ -268,21 +308,16 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $this->reject($this->rabbitMQJob, true);
         }
 
-        try {
-            if ($this->connection && $this->connection->isConnected()) {
-                $this->connection->disconnect();
-            }
-        } catch (Exception) {
-            // Ignore connection errors on close
-        }
+        // Release the channel back to the pool
+        $this->releaseChannel();
     }
 
     /**
-     * Get the AMQP channel.
+     * Get the current AMQP channel (public API).
      */
-    public function getChannel(): AMQPChannel
+    public function getAmqpChannel(): AMQPChannel
     {
-        return $this->amqpChannel;
+        return $this->getChannel();
     }
 
     /**
@@ -305,17 +340,11 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         array $arguments = []
     ): void {
         try {
-            // Ensure connection is available before creating channel
-            if (! $this->connection->isConnected()) {
-                $this->connection->connect();
-            }
+            // Connection health is managed by the pool
 
-            // Ensure channel is valid
-            if (! isset($this->amqpChannel) || ! $this->amqpChannel->getConnection()->isConnected()) {
-                $this->amqpChannel = new AMQPChannel($this->connection);
-            }
+            // Channel health is managed by the pool
 
-            $amqpQueue = new AMQPQueue($this->amqpChannel);
+            $amqpQueue = new AMQPQueue($this->getChannel());
             $amqpQueue->setName($name);
             $amqpQueue->setFlags($durable ? AMQP_DURABLE : AMQP_NOPARAM);
 
@@ -328,7 +357,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             }
 
             $amqpQueue->declareQueue();
-        } catch (AMQPChannelException|AMQPQueueException $exception) {
+        } catch (AMQPChannelException | AMQPQueueException $exception) {
             // If it's not a "queue already exists" or "unknown delivery tag" case, re-throw
             if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
                 throw $exception;
@@ -336,7 +365,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             // Ignore 406 errors (queue already exists or unknown delivery tag)
         } catch (AMQPConnectionException $exception) {
             // Reopen channel and try again
-            $this->amqpChannel = new AMQPChannel($this->connection);
+            $this->releaseChannel();
             $this->declareQueue($name, $durable, $autoDelete, $arguments);
         }
     }
@@ -363,10 +392,11 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      */
     public function getJobClass(): string
     {
+        /** @var class-string<RabbitMQJob> $job */
         $job = config('queue.connections.rabbitmq.options.queue.job', RabbitMQJob::class);
 
-        if (! is_a($job, RabbitMQJob::class, true)) {
-            throw new Exception(sprintf('Class %s must extend: %s', $job, RabbitMQJob::class));
+        if (! is_string($job) || ! is_a($job, RabbitMQJob::class, true)) {
+            throw new Exception(sprintf('Class %s must extend: %s', is_string($job) ? $job : gettype($job), RabbitMQJob::class));
         }
 
         return $job;
@@ -385,13 +415,13 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         }
 
         try {
-            $amqpQueue = new AMQPQueue($this->amqpChannel);
+            $amqpQueue = new AMQPQueue($this->getChannel());
             $amqpQueue->setName($rabbitMQJob->getQueue());
             $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
-        } catch (AMQPChannelException|AMQPConnectionException $exception) {
+        } catch (AMQPChannelException | AMQPConnectionException $exception) {
             // Reopen channel and try again
-            $this->amqpChannel = new AMQPChannel($this->connection);
-            $amqpQueue = new AMQPQueue($this->amqpChannel);
+            $this->releaseChannel();
+            $amqpQueue = new AMQPQueue($this->getChannel());
             $amqpQueue->setName($rabbitMQJob->getQueue());
             $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
         }
@@ -413,34 +443,23 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
         while ($attempts < $maxRetries) {
             try {
-                $amqpQueue = new AMQPQueue($this->amqpChannel);
+                $amqpQueue = new AMQPQueue($this->getChannel());
                 $amqpQueue->setName($rabbitMQJob->getQueue());
                 $amqpQueue->ack($deliveryTag);
-                Log::debug('Acknowledged job with delivery tag: '.$deliveryTag);
 
                 return; // Acknowledgment successful
-            } catch (AMQPChannelException|AMQPConnectionException $exception) {
-                Log::warning(
-                    sprintf(
-                        'RabbitMQ connection or channel closed during job acknowledgment (attempt %d/%d): %s',
-                        $attempts + 1,
-                        $maxRetries,
-                        $exception->getMessage()
-                    )
-                );
+            } catch (AMQPChannelException | AMQPConnectionException $exception) {
                 // Recreate channel instead of setting to null
-                $this->amqpChannel = new AMQPChannel($this->connection);
+                $this->releaseChannel();
                 $attempts++;
                 if ($attempts < $maxRetries) {
                     usleep($retryDelay * 1000); // Wait before retrying
                 }
             } catch (Throwable $e) {
-                Log::error('Error during job acknowledgment: '.$e->getMessage());
 
                 break; // Stop retrying for other errors
             }
         }
-        Log::error('Failed to acknowledge job with delivery tag: '.$deliveryTag.' after multiple retries.');
     }
 
     /**
@@ -475,7 +494,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     public function purgeQueue(string $queueName)
     {
         try {
-            $amqpQueue = new AMQPQueue($this->amqpChannel);
+            $amqpQueue = new AMQPQueue($this->getChannel());
             $amqpQueue->setName($queueName);
 
             return $amqpQueue->purge();
@@ -488,7 +507,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             throw $exception;
         } catch (AMQPConnectionException $exception) {
             // Reopen channel and try again
-            $this->amqpChannel = new AMQPChannel($this->connection);
+            $this->releaseChannel();
 
             return $this->purgeQueue($queueName);
         }
@@ -502,7 +521,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     public function deleteQueue(string $queueName)
     {
         try {
-            $amqpQueue = new AMQPQueue($this->amqpChannel);
+            $amqpQueue = new AMQPQueue($this->getChannel());
             $amqpQueue->setName($queueName);
 
             return $amqpQueue->delete();
@@ -515,7 +534,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             throw $exception;
         } catch (AMQPConnectionException $exception) {
             // Reopen channel and try again
-            $this->amqpChannel = new AMQPChannel($this->connection);
+            $this->releaseChannel();
 
             return $this->deleteQueue($queueName);
         }
@@ -537,9 +556,9 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
         try {
             return $this->doPublish($payload, $queueName, $messageAttributes);
-        } catch (AMQPChannelException|AMQPConnectionException) {
+        } catch (AMQPChannelException | AMQPConnectionException) {
             // Reopen channel and try again
-            $this->amqpChannel = new AMQPChannel($this->connection);
+            $this->releaseChannel();
 
             return $this->doPublish($payload, $queueName, $messageAttributes);
         }
@@ -550,10 +569,282 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      */
     private function doPublish(string $payload, string $queueName, array $messageAttributes): string
     {
-        $amqpExchange = new AMQPExchange($this->amqpChannel);
+        $amqpExchange = new AMQPExchange($this->getChannel());
         $amqpExchange->setName('');
+
+        // Enable publisher confirms if configured
+        if ($this->isPublisherConfirmsEnabled()) {
+            $this->getPublisherConfirms()->enable();
+        }
+
         $amqpExchange->publish($payload, $queueName, AMQP_NOPARAM, $messageAttributes);
 
+        // Wait for confirm if enabled
+        if ($this->isPublisherConfirmsEnabled()) {
+            $this->getPublisherConfirms()->waitForConfirms();
+        }
+
         return $messageAttributes['correlation_id'];
+    }
+
+    /**
+     * Declare a queue with advanced options (lazy, priority, DLX)
+     */
+    public function declareAdvancedQueue(
+        string $name,
+        bool $durable = true,
+        bool $autoDelete = false,
+        bool $lazy = false,
+        ?int $priority = null,
+        ?array $deadLetterConfig = null,
+        array $additionalArguments = []
+    ): void {
+        $arguments = $additionalArguments;
+
+        // Lazy queue
+        if ($lazy) {
+            $arguments['x-queue-mode'] = 'lazy';
+        }
+
+        // Priority queue
+        if ($priority !== null && $priority > 0) {
+            $arguments['x-max-priority'] = min($priority, 255);
+        }
+
+        // Dead letter exchange
+        if ($deadLetterConfig !== null) {
+            $arguments['x-dead-letter-exchange'] = $deadLetterConfig['exchange'] ?? '';
+            if (isset($deadLetterConfig['routing_key'])) {
+                $arguments['x-dead-letter-routing-key'] = $deadLetterConfig['routing_key'];
+            }
+            if (isset($deadLetterConfig['ttl'])) {
+                $arguments['x-message-ttl'] = $deadLetterConfig['ttl'];
+            }
+        }
+
+        $this->declareQueue($name, $durable, $autoDelete, $arguments);
+    }
+
+    /**
+     * Get the exchange manager
+     */
+    public function getExchangeManager(): ExchangeManager
+    {
+        if ($this->exchangeManager === null) {
+            $this->exchangeManager = new ExchangeManager($this->getChannel());
+        }
+
+        return $this->exchangeManager;
+    }
+
+    /**
+     * Get the exponential backoff instance
+     */
+    public function getBackoff(): ExponentialBackoff
+    {
+        if ($this->backoff === null) {
+            $config = config('queue.connections.rabbitmq.backoff', []);
+            $this->backoff = new ExponentialBackoff(
+                $config['base_delay'] ?? 1000,
+                $config['max_delay'] ?? 60000,
+                $config['multiplier'] ?? 2.0,
+                $config['jitter'] ?? true
+            );
+        }
+
+        return $this->backoff;
+    }
+
+    /**
+     * Get the publisher confirms instance
+     */
+    public function getPublisherConfirms(): PublisherConfirms
+    {
+        if ($this->publisherConfirms === null) {
+            $timeout = config('queue.connections.rabbitmq.publisher_confirms.timeout', 5);
+            $this->publisherConfirms = new PublisherConfirms($this->getChannel(), $timeout);
+        }
+
+        return $this->publisherConfirms;
+    }
+
+    /**
+     * Get the transaction manager
+     */
+    public function getTransactionManager(): TransactionManager
+    {
+        if ($this->transactionManager === null) {
+            $this->transactionManager = new TransactionManager($this->getChannel());
+        }
+
+        return $this->transactionManager;
+    }
+
+    /**
+     * Get the RPC client
+     */
+    public function getRpcClient(): RpcClient
+    {
+        if ($this->rpcClient === null) {
+            $timeout = config('queue.connections.rabbitmq.rpc.timeout', 30);
+            $this->rpcClient = new RpcClient($this->getChannel(), $timeout);
+        }
+
+        return $this->rpcClient;
+    }
+
+    /**
+     * Publish to a specific exchange
+     */
+    public function publishToExchange(
+        string $exchangeName,
+        string $payload,
+        string $routingKey = '',
+        array $headers = []
+    ): bool {
+        $correlationId = $this->createMessage($payload);
+
+        $attributes = [
+            'correlation_id' => $correlationId,
+            'delivery_mode' => self::DELIVERY_MODE_PERSISTENT,
+            'content_type' => 'application/json',
+        ];
+
+        if (! empty($headers)) {
+            $attributes['headers'] = $headers;
+        }
+
+        return $this->getExchangeManager()->publish(
+            $exchangeName,
+            $payload,
+            $routingKey,
+            $attributes
+        );
+    }
+
+    /**
+     * Make an RPC call
+     */
+    public function rpcCall(string $queue, string $message, array $headers = []): string
+    {
+        if (! $this->isRpcEnabled()) {
+            throw new Exception('RPC is not enabled in configuration');
+        }
+
+        return $this->getRpcClient()->call($queue, $message, $headers);
+    }
+
+    /**
+     * Execute a callback within a transaction
+     */
+    public function transaction(callable $callback): mixed
+    {
+        if (! $this->isTransactionsEnabled()) {
+            throw new Exception('Transactions are not enabled in configuration');
+        }
+
+        return $this->getTransactionManager()->transaction($callback);
+    }
+
+    /**
+     * Check if publisher confirms are enabled
+     */
+    private function isPublisherConfirmsEnabled(): bool
+    {
+        return config('queue.connections.rabbitmq.publisher_confirms.enabled', false);
+    }
+
+    /**
+     * Check if RPC is enabled
+     */
+    private function isRpcEnabled(): bool
+    {
+        return config('queue.connections.rabbitmq.rpc.enabled', false);
+    }
+
+    /**
+     * Check if transactions are enabled
+     */
+    private function isTransactionsEnabled(): bool
+    {
+        return config('queue.connections.rabbitmq.transactions.enabled', false);
+    }
+
+    /**
+     * Setup dead letter exchange for a queue
+     */
+    public function setupDeadLetterExchange(
+        string $queueName,
+        ?string $dlxName = null,
+        ?string $dlxRoutingKey = null
+    ): void {
+        $dlxConfig = config('queue.connections.rabbitmq.dead_letter', []);
+
+        if (! ($dlxConfig['enabled'] ?? true)) {
+            return;
+        }
+
+        $dlxName = $dlxName ?? ($dlxConfig['exchange'] ?? 'dlx');
+        $dlxType = $dlxConfig['exchange_type'] ?? 'direct';
+
+        $this->getExchangeManager()->setupDeadLetterExchange(
+            $queueName,
+            $dlxName,
+            $dlxType,
+            $dlxRoutingKey
+        );
+    }
+
+    /**
+     * Publish a delayed message
+     */
+    public function publishDelayed(
+        string $queue,
+        string $payload,
+        int $delay,
+        array $headers = []
+    ): ?string {
+        $delayedConfig = config('queue.connections.rabbitmq.delayed_message', []);
+
+        if ($delayedConfig['plugin_enabled'] ?? false) {
+            // Use RabbitMQ delayed message plugin
+            return $this->publishDelayedWithPlugin($queue, $payload, $delay, $headers);
+        }
+
+        // Use TTL-based delay (existing implementation)
+        return $this->laterRaw($delay, $payload, $queue);
+    }
+
+    /**
+     * Publish delayed message using RabbitMQ delayed message exchange plugin
+     */
+    private function publishDelayedWithPlugin(
+        string $queue,
+        string $payload,
+        int $delay,
+        array $headers = []
+    ): string {
+        $delayedConfig = config('queue.connections.rabbitmq.delayed_message', []);
+        $exchangeName = $delayedConfig['exchange'] ?? 'delayed';
+
+        $correlationId = $this->createMessage($payload);
+
+        $attributes = [
+            'correlation_id' => $correlationId,
+            'delivery_mode' => self::DELIVERY_MODE_PERSISTENT,
+            'content_type' => 'application/json',
+            'headers' => array_merge($headers, [
+                'x-delay' => $delay * 1000, // Convert to milliseconds
+            ]),
+        ];
+
+        $this->getExchangeManager()->publish(
+            $exchangeName,
+            $payload,
+            $queue,
+            $attributes
+        );
+
+        return $correlationId;
     }
 }

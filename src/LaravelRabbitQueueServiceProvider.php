@@ -3,6 +3,7 @@
 namespace iamfarhad\LaravelRabbitMQ;
 
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\PoolStatsCommand;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\ServiceProvider;
@@ -37,6 +38,7 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
 
             $this->commands([
                 ConsumeCommand::class,
+                PoolStatsCommand::class,
             ]);
         }
     }

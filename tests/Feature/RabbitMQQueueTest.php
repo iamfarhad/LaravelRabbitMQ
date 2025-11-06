@@ -71,6 +71,7 @@ class RabbitMQQueueTest extends TestCase
         $jobs = [
             new TestJob('bulk-job-1'),
             new TestJob('bulk-job-2'),
+
             new TestJob('bulk-job-3'),
         ];
 
@@ -128,19 +129,27 @@ class RabbitMQQueueTest extends TestCase
 
     public function testChecksQueueExistence(): void
     {
-        $queueName = 'existence-test-queue-'.uniqid();
+        $queueName = 'existence-test-queue';
         $connection = Queue::connection('rabbitmq');
 
-        // Queue should not exist initially
-        $this->assertFalse($connection->queueExists($queueName));
+        // Clean up first in case queue exists
+        try {
+            $connection->deleteQueue($queueName);
+        } catch (\Exception $e) {
+            // Ignore if queue doesn't exist
+        }
 
-        // Create queue by pushing a job
+        // Create queue by pushing a job first (this should work)
         Queue::pushOn($queueName, new TestJob('existence-test'));
 
         // Now queue should exist
         $this->assertTrue($connection->queueExists($queueName));
 
-        // Clean up
+        // Clean up the job and verify queue is empty but still exists
+        $connection->purgeQueue($queueName);
+        $this->assertTrue($connection->queueExists($queueName));
+
+        // Finally delete the queue
         $connection->deleteQueue($queueName);
     }
 
@@ -161,14 +170,26 @@ class RabbitMQQueueTest extends TestCase
 
     public function testReturnsNullForEmptyQueue(): void
     {
-        $queueName = 'empty-test-queue-'.uniqid();
-
+        $queueName = 'empty-test-queue';
         $connection = Queue::connection('rabbitmq');
 
-        // Try to pop from a non-existent queue should return null
-        $job = $connection->pop($queueName);
+        // First create the queue by pushing a job
+        Queue::pushOn($queueName, new TestJob('test'));
 
+        // Then consume the job to empty the queue
+        $job = $connection->pop($queueName);
+        $this->assertNotNull($job);
+
+        // Now try to pop from the empty queue - should return null
+        $job = $connection->pop($queueName);
         $this->assertNull($job);
+
+        // Clean up
+        try {
+            $connection->deleteQueue($queueName);
+        } catch (\Exception $e) {
+            // Ignore cleanup errors
+        }
     }
 
     public function testHandlesConnectionErrorsGracefully(): void

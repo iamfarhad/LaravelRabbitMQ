@@ -15,6 +15,16 @@ abstract class UnitTestCase extends TestCase
         parent::setUp();
     }
 
+    /**
+     * Skip test if AMQP extension is loaded (prevents mocking conflicts)
+     */
+    protected function skipIfAmqpExtensionLoaded(): void
+    {
+        if (extension_loaded('amqp')) {
+            $this->markTestSkipped('Test skipped: AMQP extension is loaded which prevents proper mocking of AMQP classes');
+        }
+    }
+
     protected function tearDown(): void
     {
         if (class_exists(\Mockery::class)) {

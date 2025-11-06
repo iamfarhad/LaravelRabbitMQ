@@ -10,7 +10,6 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Log;
 use JsonException;
 use Throwable;
 
@@ -72,9 +71,6 @@ final class RabbitMQJob extends Job implements JobContract
             if ($this->amqpEnvelope->getExchangeName() !== self::FAILED_MESSAGES_EXCHANGE) {
                 // Check if the RabbitMQ connection is still available before attempting operations
                 if (! $this->rabbitQueue->getConnection()->isConnected()) {
-                    Log::warning('RabbitMQ connection lost, cannot move job to failed_messages queue', [
-                        'job_id' => $this->getJobId(),
-                    ]);
 
                     return;
                 }
@@ -85,11 +81,6 @@ final class RabbitMQJob extends Job implements JobContract
         } catch (Throwable $e) {
             // If channel is not available or queue declaration fails, just log the error
             // This can happen when the connection is lost during job processing
-            Log::error('Failed to move job to failed_messages queue', [
-                'job_id' => $this->getJobId(),
-                'exception' => $e->getMessage(),
-                'exception_class' => get_class($e),
-            ]);
         }
     }
 

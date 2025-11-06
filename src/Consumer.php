@@ -78,8 +78,21 @@ class Consumer extends Worker
         $amqpQueue->setName($queue);
 
         // Set QoS
-        $prefetchCount = config('queue.connections.rabbitmq.options.queue.prefetch_count', 10);
+        $qosConfig = config('queue.connections.rabbitmq.options.queue.qos', []);
+        $prefetchCount = $qosConfig['prefetch_count'] ?? 10;
+        $prefetchSize = $qosConfig['prefetch_size'] ?? 0;
+        $global = $qosConfig['global'] ?? false;
+
         $this->amqpChannel->setPrefetchCount($prefetchCount);
+        if ($prefetchSize > 0) {
+            $this->amqpChannel->setPrefetchSize($prefetchSize);
+        }
+
+        // Set consumer priority if configured
+        $queueConfig = config("queue.connections.rabbitmq.queues.{$queue}", []);
+        if (isset($queueConfig['priority'])) {
+            $this->setMaxPriority($queueConfig['priority']);
+        }
 
         while (true) {
             // Before reserving any jobs, we will make sure this queue is not paused and
