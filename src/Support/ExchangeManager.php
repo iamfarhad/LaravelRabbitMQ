@@ -131,7 +131,7 @@ class ExchangeManager
         $this->declareExchange($dlxName, $dlxType, true, false);
 
         // Create dead letter queue
-        $dlqName = $queueName . '.dlq';
+        $dlqName = $queueName.'.dlq';
         $dlq = new AMQPQueue($this->channel);
         $dlq->setName($dlqName);
         $dlq->setFlags(AMQP_DURABLE);

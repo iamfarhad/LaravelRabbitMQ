@@ -34,7 +34,7 @@ class PublisherConfirms
             $this->channel->confirmSelect();
             $this->confirmMode = true;
         } catch (AMQPChannelException $e) {
-            throw new Exception('Failed to enable publisher confirms: ' . $e->getMessage(), 0, $e);
+            throw new Exception('Failed to enable publisher confirms: '.$e->getMessage(), 0, $e);
         }
     }
 
@@ -58,9 +58,10 @@ class PublisherConfirms
         }
         try {
             $this->channel->waitForConfirm($this->timeout);
+
             return true;
         } catch (AMQPChannelException $e) {
-            throw new Exception('Failed to wait for confirms: ' . $e->getMessage(), 0, $e);
+            throw new Exception('Failed to wait for confirms: '.$e->getMessage(), 0, $e);
         }
     }
 

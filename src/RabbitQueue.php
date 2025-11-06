@@ -132,7 +132,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $this->createPayload($job, $this->getQueue($queue), $data),
             $queue,
             null,
-            fn($payload, $queue) => $this->pushRaw($payload, $queue)
+            fn ($payload, $queue) => $this->pushRaw($payload, $queue)
         );
     }
 
@@ -171,7 +171,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $this->createPayload($job, $this->getQueue($queue), $data),
             $queue,
             $delay,
-            fn($payload, $queue, $delay) => $this->laterRaw($delay, $payload, $queue)
+            fn ($payload, $queue, $delay) => $this->laterRaw($delay, $payload, $queue)
         );
     }
 
@@ -195,7 +195,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         }
 
         $queueName = $this->getQueue($queue);
-        $delayQueueName = $queueName . '.delay.' . $ttl;
+        $delayQueueName = $queueName.'.delay.'.$ttl;
 
         $this->declareDelayQueue($delayQueueName, $queueName, $ttl);
 
@@ -260,7 +260,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         } catch (AMQPConnectionException $exception) {
             // Replace with a more specific exception that Laravel's worker can detect as a lost connection
             throw new Exception(
-                'Lost connection: ' . $exception->getMessage(),
+                'Lost connection: '.$exception->getMessage(),
                 $exception->getCode(),
                 $exception
             );
@@ -357,7 +357,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             }
 
             $amqpQueue->declareQueue();
-        } catch (AMQPChannelException | AMQPQueueException $exception) {
+        } catch (AMQPChannelException|AMQPQueueException $exception) {
             // If it's not a "queue already exists" or "unknown delivery tag" case, re-throw
             if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
                 throw $exception;
@@ -418,7 +418,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $amqpQueue = new AMQPQueue($this->getChannel());
             $amqpQueue->setName($rabbitMQJob->getQueue());
             $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
-        } catch (AMQPChannelException | AMQPConnectionException $exception) {
+        } catch (AMQPChannelException|AMQPConnectionException $exception) {
             // Reopen channel and try again
             $this->releaseChannel();
             $amqpQueue = new AMQPQueue($this->getChannel());
@@ -448,7 +448,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
                 $amqpQueue->ack($deliveryTag);
 
                 return; // Acknowledgment successful
-            } catch (AMQPChannelException | AMQPConnectionException $exception) {
+            } catch (AMQPChannelException|AMQPConnectionException $exception) {
                 // Recreate channel instead of setting to null
                 $this->releaseChannel();
                 $attempts++;
@@ -556,7 +556,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
         try {
             return $this->doPublish($payload, $queueName, $messageAttributes);
-        } catch (AMQPChannelException | AMQPConnectionException) {
+        } catch (AMQPChannelException|AMQPConnectionException) {
             // Reopen channel and try again
             $this->releaseChannel();
 
