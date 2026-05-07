@@ -31,7 +31,7 @@ jobs:
             testbench: 9.*
 
 
-    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }} - ${{ matrix.stability }}
+    name: PHP${{ matrix.php }} - Laravel${{ matrix.laravel }} - ${{ matrix.dependency-version }}
 
     services:
       rabbitmq:
@@ -62,9 +62,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
-          composer update --${{ matrix.stability }} --prefer-dist --no-interaction
-
+          composer require "illuminate/console:${{ matrix.laravel }}" "illuminate/database:${{ matrix.laravel }}" "illuminate/filesystem:${{ matrix.laravel }}" --no-update
+          composer require "orchestra/testbench:${{ matrix.testbench }}" --dev --no-update
+          composer update --prefer-dist --no-suggest
+          
       - name: Clear PHPUnit cache
         run: |
           rm -rf .phpunit.cache
