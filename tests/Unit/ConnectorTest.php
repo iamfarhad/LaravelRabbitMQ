@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
+use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\Tests\TestCase;
 use Illuminate\Events\Dispatcher;
 
@@ -72,7 +73,7 @@ class ConnectorTest extends TestCase
             ],
             'options' => [
                 'queue' => [
-                    'job' => \iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class,
+                    'job' => RabbitMQJob::class,
                 ],
             ],
         ];

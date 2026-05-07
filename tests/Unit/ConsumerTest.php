@@ -15,15 +15,15 @@ class ConsumerTest extends TestCase
 {
     protected function tearDown(): void
     {
-        \Mockery::close();
+        Mockery::close();
         parent::tearDown();
     }
 
     public function testCreatesConsumerInstance(): void
     {
-        $manager = \Mockery::mock(QueueManager::class);
-        $events = \Mockery::mock(Dispatcher::class);
-        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $manager = Mockery::mock(QueueManager::class);
+        $events = Mockery::mock(Dispatcher::class);
+        $exceptions = Mockery::mock(ExceptionHandler::class);
         $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
@@ -33,9 +33,9 @@ class ConsumerTest extends TestCase
 
     public function testSetsContainerWithoutError(): void
     {
-        $manager = \Mockery::mock(QueueManager::class);
-        $events = \Mockery::mock(Dispatcher::class);
-        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $manager = Mockery::mock(QueueManager::class);
+        $events = Mockery::mock(Dispatcher::class);
+        $exceptions = Mockery::mock(ExceptionHandler::class);
         $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
@@ -48,9 +48,9 @@ class ConsumerTest extends TestCase
 
     public function testSetsConsumerTagWithoutError(): void
     {
-        $manager = \Mockery::mock(QueueManager::class);
-        $events = \Mockery::mock(Dispatcher::class);
-        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $manager = Mockery::mock(QueueManager::class);
+        $events = Mockery::mock(Dispatcher::class);
+        $exceptions = Mockery::mock(ExceptionHandler::class);
         $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
@@ -62,9 +62,9 @@ class ConsumerTest extends TestCase
 
     public function testSetsMaxPriorityWithoutError(): void
     {
-        $manager = \Mockery::mock(QueueManager::class);
-        $events = \Mockery::mock(Dispatcher::class);
-        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $manager = Mockery::mock(QueueManager::class);
+        $events = Mockery::mock(Dispatcher::class);
+        $exceptions = Mockery::mock(ExceptionHandler::class);
         $isDownForMaintenance = fn () => false;
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
@@ -76,9 +76,9 @@ class ConsumerTest extends TestCase
 
     public function testConsumerHandlesMaintenanceMode(): void
     {
-        $manager = \Mockery::mock(QueueManager::class);
-        $events = \Mockery::mock(Dispatcher::class);
-        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $manager = Mockery::mock(QueueManager::class);
+        $events = Mockery::mock(Dispatcher::class);
+        $exceptions = Mockery::mock(ExceptionHandler::class);
         $isDownForMaintenance = fn () => true; // Simulate maintenance mode
 
         $consumer = new Consumer($manager, $events, $exceptions, $isDownForMaintenance);
@@ -88,9 +88,9 @@ class ConsumerTest extends TestCase
 
     public function testConsumerAcceptsCallableForMaintenanceCheck(): void
     {
-        $manager = \Mockery::mock(QueueManager::class);
-        $events = \Mockery::mock(Dispatcher::class);
-        $exceptions = \Mockery::mock(ExceptionHandler::class);
+        $manager = Mockery::mock(QueueManager::class);
+        $events = Mockery::mock(Dispatcher::class);
+        $exceptions = Mockery::mock(ExceptionHandler::class);
 
         $maintenanceCallCount = 0;
         $isDownForMaintenance = function () use (&$maintenanceCallCount) {

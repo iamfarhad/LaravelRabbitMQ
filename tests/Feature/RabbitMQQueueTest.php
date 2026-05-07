@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\Jobs\TestJob;
 use iamfarhad\LaravelRabbitMQ\Tests\TestCase;
@@ -135,7 +136,7 @@ class RabbitMQQueueTest extends TestCase
         // Clean up first in case queue exists
         try {
             $connection->deleteQueue($queueName);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Ignore if queue doesn't exist
         }
 
@@ -165,7 +166,7 @@ class RabbitMQQueueTest extends TestCase
         $job = $connection->pop($queueName);
 
         $this->assertNotNull($job);
-        $this->assertInstanceOf(\iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class, $job);
+        $this->assertInstanceOf(RabbitMQJob::class, $job);
     }
 
     public function testReturnsNullForEmptyQueue(): void
@@ -187,7 +188,7 @@ class RabbitMQQueueTest extends TestCase
         // Clean up
         try {
             $connection->deleteQueue($queueName);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Ignore cleanup errors
         }
     }
@@ -197,7 +198,7 @@ class RabbitMQQueueTest extends TestCase
         // Test with invalid configuration
         config(['queue.connections.rabbitmq.hosts.host' => 'invalid-host']);
 
-        $this->expectException(\Exception::class);
+        $this->expectException(Exception::class);
         Queue::connection('rabbitmq')->push(new TestJob('error-test'));
     }
 }

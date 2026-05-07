@@ -187,7 +187,7 @@ class RabbitQueueTest extends UnitTestCase
         );
 
         // Use reflection to check private properties
-        $reflection = new \ReflectionClass($queue);
+        $reflection = new ReflectionClass($queue);
 
         $defaultQueueProperty = $reflection->getProperty('defaultQueue');
         $defaultQueueProperty->setAccessible(true);

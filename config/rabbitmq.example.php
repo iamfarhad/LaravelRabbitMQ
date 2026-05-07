@@ -1,5 +1,7 @@
 <?php
 
+use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
+
 /**
  * Laravel RabbitMQ - Advanced Configuration Example
  *
@@ -191,7 +193,7 @@ return [
             'passphrase' => env('RABBITMQ_SSL_PASSPHRASE', null),
         ],
         'queue' => [
-            'job' => \iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class,
+            'job' => RabbitMQJob::class,
             'qos' => [
                 'prefetch_size' => 0,
                 'prefetch_count' => 10,

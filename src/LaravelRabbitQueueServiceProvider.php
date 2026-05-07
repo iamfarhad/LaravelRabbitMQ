@@ -6,6 +6,7 @@ use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use iamfarhad\LaravelRabbitMQ\Console\Commands\PoolStatsCommand;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Queue\QueueManager;
 use Illuminate\Support\ServiceProvider;
 
 final class LaravelRabbitQueueServiceProvider extends ServiceProvider
@@ -45,7 +46,7 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        /** @var \Illuminate\Queue\QueueManager $queue */
+        /** @var QueueManager $queue */
         $queue = $this->app['queue'];
         $queue->addConnector('rabbitmq', function () {
             return new RabbitMQConnector($this->app['events']);

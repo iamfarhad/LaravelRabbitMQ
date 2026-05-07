@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
+use Illuminate\Queue\Jobs\Job;
 
 // RabbitMQJob tests require real AMQPEnvelope objects which need connections
 // All job functionality is thoroughly tested in Feature tests with real RabbitMQ
@@ -19,15 +20,15 @@ class RabbitMQJobTest extends UnitTestCase
 
     public function testJobClassImplementsCorrectInterface(): void
     {
-        $reflection = new \ReflectionClass(RabbitMQJob::class);
+        $reflection = new ReflectionClass(RabbitMQJob::class);
 
         // Check that it extends the correct base class
-        $this->assertTrue($reflection->isSubclassOf(\Illuminate\Queue\Jobs\Job::class));
+        $this->assertTrue($reflection->isSubclassOf(Job::class));
     }
 
     public function testJobClassHasRequiredMethods(): void
     {
-        $reflection = new \ReflectionClass(RabbitMQJob::class);
+        $reflection = new ReflectionClass(RabbitMQJob::class);
 
         // Check for required methods
         $this->assertTrue($reflection->hasMethod('getRawBody'));
@@ -39,7 +40,7 @@ class RabbitMQJobTest extends UnitTestCase
 
     public function testJobClassMethodsArePublic(): void
     {
-        $reflection = new \ReflectionClass(RabbitMQJob::class);
+        $reflection = new ReflectionClass(RabbitMQJob::class);
 
         $methods = ['getRawBody', 'delete', 'release', 'attempts', 'getJobId'];
 
@@ -53,7 +54,7 @@ class RabbitMQJobTest extends UnitTestCase
 
     public function testJobClassIsInstantiable(): void
     {
-        $reflection = new \ReflectionClass(RabbitMQJob::class);
+        $reflection = new ReflectionClass(RabbitMQJob::class);
 
         // The class should be instantiable (not abstract)
         $this->assertFalse($reflection->isAbstract());

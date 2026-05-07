@@ -2,7 +2,10 @@
 
 namespace iamfarhad\LaravelRabbitMQ\Tests;
 
+use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
+use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider;
+use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
@@ -44,7 +47,7 @@ abstract class TestCase extends Orchestra
             ],
             'options' => [
                 'queue' => [
-                    'job' => \iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob::class,
+                    'job' => RabbitMQJob::class,
                     'prefetch_count' => 10,
                 ],
             ],
@@ -71,7 +74,7 @@ abstract class TestCase extends Orchestra
         // Clean up any test queues - only if RabbitMQ connection is available
         try {
             $connection = \Queue::connection('rabbitmq');
-            if ($connection instanceof \iamfarhad\LaravelRabbitMQ\RabbitQueue) {
+            if ($connection instanceof RabbitQueue) {
                 $testQueues = ['test-queue', 'priority-queue', 'size-test-queue', 'default'];
                 foreach ($testQueues as $queue) {
                     $connection->purgeQueue($queue);
@@ -83,7 +86,7 @@ abstract class TestCase extends Orchestra
 
         // Reset the static pool manager to prevent connection accumulation between tests
         try {
-            $reflection = new \ReflectionClass(\iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector::class);
+            $reflection = new \ReflectionClass(RabbitMQConnector::class);
             $property = $reflection->getProperty('poolManager');
             $property->setAccessible(true);
             $poolManager = $property->getValue(null);

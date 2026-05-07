@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Facades;
 
+use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Support\Facades\Facade;
 
 /**
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static mixed deleteQueue(string $queueName)
  * @method static void declareQueue(string $name, bool $durable = true, bool $autoDelete = false, array $arguments = [])
  *
- * @see \iamfarhad\LaravelRabbitMQ\RabbitQueue
+ * @see RabbitQueue
  */
 class RabbitMQ extends Facade
 {
