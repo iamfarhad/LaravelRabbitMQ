@@ -117,6 +117,54 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     }
 
     /**
+     * Get the number of pending jobs.
+     *
+     * Laravel 13 added queue metrics to the queue contract. RabbitMQ's passive
+     * queue declaration returns the number of ready messages, which maps to
+     * Laravel's pending job count.
+     *
+     * @throws AMQPChannelException
+     */
+    public function pendingSize($queue = null): int
+    {
+        return $this->size($queue);
+    }
+
+    /**
+     * Get the number of delayed jobs.
+     *
+     * This driver implements delays through per-delay TTL queues. RabbitMQ does
+     * not provide a single aggregate delayed count for the target queue, so this
+     * returns 0 rather than reporting an inaccurate value.
+     */
+    public function delayedSize($queue = null): int
+    {
+        return 0;
+    }
+
+    /**
+     * Get the number of reserved jobs.
+     *
+     * Reserved jobs are represented as unacknowledged RabbitMQ deliveries and
+     * are not exposed by a passive queue declaration in this driver.
+     */
+    public function reservedSize($queue = null): int
+    {
+        return 0;
+    }
+
+    /**
+     * Get the creation timestamp of the oldest pending job.
+     *
+     * RabbitMQ does not expose the creation time of the oldest ready message
+     * without consuming it, so this metric is unavailable.
+     */
+    public function creationTimeOfOldestPendingJob($queue = null): ?int
+    {
+        return null;
+    }
+
+    /**
      * Push a new job onto the queue.
      *
      * @param  mixed  $job

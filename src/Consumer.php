@@ -27,7 +27,15 @@ class Consumer extends Worker
 
     private AMQPChannel $amqpChannel;
 
-    private ?RabbitMQJob $currentJob = null;
+    /**
+     * The job currently being processed.
+     *
+     * Keep this public and untyped to remain compatible with Laravel 13's
+     * Worker::$currentJob property declaration.
+     *
+     * @var RabbitMQJob|null
+     */
+    public $currentJob = null;
 
     public function setContainer(Container $container): void
     {
@@ -173,11 +181,11 @@ class Consumer extends Worker
         return ! (($this->isDownForMaintenance)() && ! $options->force) && ! $this->paused;
     }
 
-    public function stop($status = 0, $options = []): int
+    public function stop($status = 0, $options = null, $reason = null)
     {
         // For ext-amqp, we don't need to explicitly cancel consumption
         // as we're using a polling approach rather than a callback approach
 
-        return parent::stop($status);
+        return parent::stop($status, $options, $reason);
     }
 }
