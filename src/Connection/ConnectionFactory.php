@@ -14,7 +14,7 @@ class ConnectionFactory
 
     private int $maxRetries;
 
-    private int $retryDelay;
+    private int|float $retryDelay;
 
     public function __construct(array $config)
     {
@@ -46,7 +46,7 @@ class ConnectionFactory
                 $attempt++;
 
                 if ($attempt < $this->maxRetries) {
-                    usleep($this->retryDelay * 1000); // Convert to microseconds
+                    usleep($this->retryDelayInMicroseconds());
                     $this->retryDelay *= 2; // Exponential backoff
                 }
             }
@@ -92,6 +92,11 @@ class ConnectionFactory
         }
 
         return $config;
+    }
+
+    private function retryDelayInMicroseconds(): int
+    {
+        return max(0, (int) round($this->retryDelay * 1000));
     }
 
     /**
