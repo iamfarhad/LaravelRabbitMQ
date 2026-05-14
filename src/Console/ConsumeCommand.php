@@ -34,7 +34,7 @@ final class ConsumeCommand extends WorkCommand
                             {--tries=1 : Number of times to attempt a job before logging it failed}
                             {--rest=0 : Number of seconds to rest between jobs}
                             {--max-priority=null : Maximum priority level to consume}
-                            {--consumer-tag}
+                            {--consumer-tag= : Custom RabbitMQ consumer tag}
                             {--num-processes=2 : Number of processes to run in parallel}
                            ';
 
