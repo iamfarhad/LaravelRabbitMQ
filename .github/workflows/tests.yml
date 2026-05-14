@@ -80,6 +80,12 @@ jobs:
           composer require "orchestra/testbench:${{ matrix.testbench }}" --dev --no-update
           composer update --prefer-dist --no-progress --with-all-dependencies
 
+      - name: Run formatting check
+        run: composer format-test
+
+      - name: Run static analysis
+        run: composer analyse
+
       - name: Clear PHPUnit cache
         run: |
           rm -rf .phpunit.cache
