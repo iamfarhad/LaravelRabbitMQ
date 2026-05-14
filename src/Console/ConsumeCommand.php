@@ -35,7 +35,7 @@ final class ConsumeCommand extends WorkCommand
                             {--rest=0 : Number of seconds to rest between jobs}
                             {--max-priority=null : Maximum priority level to consume}
                             {--consumer-tag= : Custom RabbitMQ consumer tag}
-                            {--consume-mode=poll : Consumer mode: poll or consume}
+                            {--consume-mode= : Consumer mode: poll or consume}
                             {--num-processes=2 : Number of processes to run in parallel}
                            ';
 
@@ -129,7 +129,7 @@ final class ConsumeCommand extends WorkCommand
             $consumer->setContainer($this->laravel);
             $consumer->setName((string) $this->option('name'));
             $consumer->setConsumerTag($this->generateConsumerTag());
-            $consumer->setConsumeMode((string) $this->option('consume-mode'));
+            $consumer->setConsumeMode($this->consumeMode());
 
             $maxPriority = $this->option('max-priority');
             if ($maxPriority !== null && $maxPriority !== '') {
@@ -142,6 +142,17 @@ final class ConsumeCommand extends WorkCommand
 
             return 1;
         }
+    }
+
+    private function consumeMode(): string
+    {
+        $mode = $this->option('consume-mode');
+
+        if ($mode !== null && $mode !== '') {
+            return (string) $mode;
+        }
+
+        return (string) config('queue.connections.rabbitmq.options.queue.consume_mode', 'poll');
     }
 
     /**
