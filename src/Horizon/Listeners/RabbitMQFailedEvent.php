@@ -18,7 +18,7 @@ class RabbitMQFailedEvent
 
     public function handle(LaravelJobFailed $event): void
     {
-        if (! $event->job instanceof RabbitMQJob || ! class_exists(self::HORIZON_JOB_FAILED)) {
+        if (!$event->job instanceof RabbitMQJob || !class_exists(self::HORIZON_JOB_FAILED)) {
             return;
         }
 
