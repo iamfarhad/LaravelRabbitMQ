@@ -107,8 +107,10 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
             return $amqpQueue->declareQueue();
         } catch (AMQPChannelException $exception) {
-            // If queue doesn't exist
+            // Passive declarations close the channel when the queue is missing.
             if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
+                $this->releaseChannel();
+
                 return 0;
             }
 
@@ -337,7 +339,9 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
             return true;
         } catch (Throwable $throwable) {
-            if ($throwable instanceof AMQPChannelException && $throwable->getCode() === 404) {
+            if ($throwable instanceof AMQPChannelException && $throwable->getCode() === self::QUEUE_NOT_FOUND_CODE) {
+                $this->releaseChannel();
+
                 return false;
             }
 
