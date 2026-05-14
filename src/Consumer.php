@@ -27,6 +27,8 @@ class Consumer extends Worker
 
     private AMQPChannel $amqpChannel;
 
+    private string $consumeMode = 'poll';
+
     /**
      * The job currently being processed.
      *
@@ -52,6 +54,11 @@ class Consumer extends Worker
         $this->maxPriority = $value;
     }
 
+    public function setConsumeMode(string $mode): void
+    {
+        $this->consumeMode = in_array($mode, ['poll', 'consume'], true) ? $mode : 'poll';
+    }
+
     /**
      * Listen to the given queue in a loop.
      *
@@ -73,7 +80,6 @@ class Consumer extends Worker
 
         $connection = $this->manager->connection($connectionName);
 
-        // Check if the connection is a RabbitQueue instance
         if (! $connection instanceof RabbitQueue) {
             throw new RuntimeException('Connection must be an instance of RabbitQueue for RabbitMQ Consumer');
         }
@@ -85,27 +91,23 @@ class Consumer extends Worker
         $amqpQueue = new AMQPQueue($this->amqpChannel);
         $amqpQueue->setName($queue);
 
-        // Set QoS
-        $qosConfig = config('queue.connections.rabbitmq.options.queue.qos', []);
-        $prefetchCount = $qosConfig['prefetch_count'] ?? 10;
-        $prefetchSize = $qosConfig['prefetch_size'] ?? 0;
-        $global = $qosConfig['global'] ?? false;
+        $this->configureQos($queue);
 
-        $this->amqpChannel->setPrefetchCount($prefetchCount);
-        if ($prefetchSize > 0) {
-            $this->amqpChannel->setPrefetchSize($prefetchSize);
-        }
-
-        // Set consumer priority if configured
-        $queueConfig = config("queue.connections.rabbitmq.queues.{$queue}", []);
-        if (isset($queueConfig['priority'])) {
-            $this->setMaxPriority($queueConfig['priority']);
+        if ($this->consumeMode === 'consume') {
+            return $this->daemonUsingBasicConsume(
+                $amqpQueue,
+                $connection,
+                $jobClass,
+                $connectionName,
+                $queue,
+                $options,
+                $timestampOfLastQueueRestart,
+                $startTime,
+                $jobsProcessed
+            );
         }
 
         while (true) {
-            // Before reserving any jobs, we will make sure this queue is not paused and
-            // if it is we will just pause this worker for a given amount of time and
-            // make sure we do not need to kill this worker process off completely.
             if (! $this->daemonShouldRun($options, $connectionName, $queue)) {
                 $this->pauseWorker($options, $timestampOfLastQueueRestart);
 
@@ -113,36 +115,11 @@ class Consumer extends Worker
             }
 
             try {
-                // Try to get a message from the queue
                 $envelope = $amqpQueue->get(AMQP_NOPARAM);
 
                 if ($envelope instanceof AMQPEnvelope) {
-                    $job = new $jobClass(
-                        $this->container,
-                        $connection,
-                        $envelope,
-                        $connectionName,
-                        $queue
-                    );
-
-                    /** @var RabbitMQJob $job */
-                    $this->currentJob = $job;
-
-                    if ($this->supportsAsyncSignals()) {
-                        $this->registerTimeoutHandler($job, $options);
-                    }
-
-                    $jobsProcessed++;
-
-                    $this->runJob($job, $connectionName, $options);
-
-                    if ($this->supportsAsyncSignals()) {
-                        $this->resetTimeoutHandler();
-                    }
-
-                    $this->currentJob = null;
+                    $jobsProcessed += $this->processEnvelope($envelope, $connection, $jobClass, $connectionName, $queue, $options);
                 } else {
-                    // No job available, sleep for a bit
                     $this->sleep($options->sleep);
                 }
             } catch (AMQPChannelException|AMQPConnectionException $exception) {
@@ -153,9 +130,6 @@ class Consumer extends Worker
                 $this->stopWorkerIfLostConnection($exception);
             }
 
-            // Finally, we will check to see if we have exceeded our memory limits or if
-            // the queue should restart based on other indications. If so, we'll stop
-            // this worker and let whatever is "monitoring" it restart the process.
             $status = $this->stopIfNecessary(
                 $options,
                 $timestampOfLastQueueRestart,
@@ -167,6 +141,117 @@ class Consumer extends Worker
             if (! is_null($status)) {
                 return $this->stop($status);
             }
+        }
+    }
+
+    /**
+     * @param  class-string<RabbitMQJob>  $jobClass
+     */
+    private function daemonUsingBasicConsume(
+        AMQPQueue $amqpQueue,
+        RabbitQueue $connection,
+        string $jobClass,
+        string $connectionName,
+        string $queue,
+        WorkerOptions $options,
+        int $timestampOfLastQueueRestart,
+        float $startTime,
+        int &$jobsProcessed
+    ): int {
+        $callback = function (AMQPEnvelope $envelope) use (
+            $connection,
+            $jobClass,
+            $connectionName,
+            $queue,
+            $options,
+            $timestampOfLastQueueRestart,
+            $startTime,
+            &$jobsProcessed
+        ): bool {
+            if (! $this->daemonShouldRun($options, $connectionName, $queue)) {
+                $this->pauseWorker($options, $timestampOfLastQueueRestart);
+
+                return true;
+            }
+
+            try {
+                $jobsProcessed += $this->processEnvelope($envelope, $connection, $jobClass, $connectionName, $queue, $options);
+            } catch (Throwable $exception) {
+                $this->exceptions->report($exception);
+                $this->stopWorkerIfLostConnection($exception);
+            }
+
+            $status = $this->stopIfNecessary(
+                $options,
+                $timestampOfLastQueueRestart,
+                $startTime,
+                $jobsProcessed,
+                $this->currentJob
+            );
+
+            return is_null($status);
+        };
+
+        try {
+            $amqpQueue->consume($callback, AMQP_NOPARAM, $this->consumerTag ?: null);
+        } catch (AMQPChannelException|AMQPConnectionException $exception) {
+            $this->exceptions->report($exception);
+            $this->stopWorkerIfLostConnection($exception);
+        }
+
+        return $this->stop(0);
+    }
+
+    /**
+     * @param  class-string<RabbitMQJob>  $jobClass
+     */
+    private function processEnvelope(
+        AMQPEnvelope $envelope,
+        RabbitQueue $connection,
+        string $jobClass,
+        string $connectionName,
+        string $queue,
+        WorkerOptions $options
+    ): int {
+        $job = new $jobClass(
+            $this->container,
+            $connection,
+            $envelope,
+            $connectionName,
+            $queue
+        );
+
+        $this->currentJob = $job;
+
+        if ($this->supportsAsyncSignals()) {
+            $this->registerTimeoutHandler($job, $options);
+        }
+
+        $this->runJob($job, $connectionName, $options);
+
+        if ($this->supportsAsyncSignals()) {
+            $this->resetTimeoutHandler();
+        }
+
+        $this->currentJob = null;
+
+        return 1;
+    }
+
+    private function configureQos(string $queue): void
+    {
+        $qosConfig = config('queue.connections.rabbitmq.options.queue.qos', []);
+        $prefetchCount = $qosConfig['prefetch_count'] ?? 10;
+        $prefetchSize = $qosConfig['prefetch_size'] ?? 0;
+
+        $this->amqpChannel->setPrefetchCount($prefetchCount);
+        if ($prefetchSize > 0) {
+            $this->amqpChannel->setPrefetchSize($prefetchSize);
+        }
+
+        $queueConfig = config("queue.connections.rabbitmq.queues.{$queue}", []);
+        if (isset($queueConfig['priority'])) {
+            $this->setMaxPriority((int) $queueConfig['priority']);
         }
     }
 
@@ -183,9 +268,6 @@ class Consumer extends Worker
 
     public function stop($status = 0, $options = null, $reason = null)
     {
-        // For ext-amqp, we don't need to explicitly cancel consumption
-        // as we're using a polling approach rather than a callback approach
-
         return parent::stop($status, $options, $reason);
     }
 }
