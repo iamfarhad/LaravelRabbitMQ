@@ -31,6 +31,7 @@ class ConnectionFactory
     public function createConnection(): AMQPConnection
     {
         $connectionConfig = $this->buildConnectionConfig();
+        $retryDelay = $this->retryDelay;
 
         $attempt = 0;
         $lastException = null;
@@ -46,8 +47,8 @@ class ConnectionFactory
                 $attempt++;
 
                 if ($attempt < $this->maxRetries) {
-                    usleep($this->retryDelayInMicroseconds());
-                    $this->retryDelay *= 2; // Exponential backoff
+                    usleep($this->retryDelayInMicroseconds($retryDelay));
+                    $retryDelay *= 2; // Exponential backoff for this connection attempt only
                 }
             }
         }
@@ -94,9 +95,9 @@ class ConnectionFactory
         return $config;
     }
 
-    private function retryDelayInMicroseconds(): int
+    private function retryDelayInMicroseconds(int|float $retryDelay): int
     {
-        return max(0, (int) round($this->retryDelay * 1000));
+        return max(0, (int) round($retryDelay * 1000));
     }
 
     /**
