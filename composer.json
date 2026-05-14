@@ -40,7 +40,6 @@
     "require": {
         "php": "^8.2",
         "ext-amqp": "*",
-        "ext-pcntl": "*",
         "illuminate/queue": "^11.0|^12.0|^13.0",
         "illuminate/support": "^11.0|^12.0|^13.0"
     },
@@ -51,6 +50,9 @@
         "phpstan/phpstan": "^1.10",
         "phpstan/phpstan-strict-rules": "^1.5",
         "laravel/pint": "^1.10"
+    },
+    "suggest": {
+        "ext-pcntl": "Required only when running rabbitmq:consume with --num-processes greater than 1."
     },
     "autoload": {
         "psr-4": {
