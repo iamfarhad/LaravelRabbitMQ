@@ -17,9 +17,17 @@ use Illuminate\Queue\Events\WorkerStopping;
 
 class RabbitMQConnector implements ConnectorInterface
 {
+    private const HORIZON_JOB_PAYLOAD = 'Laravel\\Horizon\\JobPayload';
+
+    private const HORIZON_JOB_FAILED = 'Laravel\\Horizon\\Events\\JobFailed';
+
+    private const OCTANE_REQUEST_TERMINATED = 'Laravel\\Octane\\Events\\RequestTerminated';
+
     private static ?PoolManager $poolManager = null;
 
-    public function __construct(private Dispatcher $dispatcher) {}
+    public function __construct(private Dispatcher $dispatcher)
+    {
+    }
 
     /**
      * @throws ConnectionException
@@ -84,13 +92,13 @@ class RabbitMQConnector implements ConnectorInterface
         $worker = strtolower((string) ($config['worker'] ?? $config['options']['queue']['worker'] ?? 'default'));
 
         return $worker === 'horizon'
-            && class_exists(\Laravel\Horizon\JobPayload::class)
-            && class_exists(\Laravel\Horizon\Events\JobFailed::class);
+            && class_exists(self::HORIZON_JOB_PAYLOAD)
+            && class_exists(self::HORIZON_JOB_FAILED);
     }
 
     private function registerHorizonListeners(RabbitQueue $queue): void
     {
-        if (! $queue instanceof HorizonRabbitQueue || ! class_exists(\Laravel\Horizon\Events\JobFailed::class)) {
+        if (! $queue instanceof HorizonRabbitQueue || ! class_exists(self::HORIZON_JOB_FAILED)) {
             return;
         }
 
@@ -102,13 +110,13 @@ class RabbitMQConnector implements ConnectorInterface
         $this->dispatcher->listen(WorkerStopping::class, fn () => self::resetPoolManager());
 
         if ($this->shouldResetPoolAfterOctaneRequest()) {
-            $this->dispatcher->listen(\Laravel\Octane\Events\RequestTerminated::class, fn () => self::resetPoolManager());
+            $this->dispatcher->listen(self::OCTANE_REQUEST_TERMINATED, fn () => self::resetPoolManager());
         }
     }
 
     private function shouldResetPoolAfterOctaneRequest(): bool
     {
-        return class_exists(\Laravel\Octane\Events\RequestTerminated::class)
+        return class_exists(self::OCTANE_REQUEST_TERMINATED)
             && (bool) config('queue.connections.rabbitmq.octane.reset_on_request', false);
     }
 
