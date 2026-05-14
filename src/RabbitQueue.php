@@ -30,17 +30,27 @@ use Throwable;
 class RabbitQueue extends Queue implements RabbitQueueInterface
 {
     private const DELIVERY_MODE_PERSISTENT = 2;
+
     private const QUEUE_NOT_FOUND_CODE = 404;
+
     private const QUEUE_ALREADY_EXISTS_CODE = 406;
+
     private const DEFAULT_RETRY_DELAY = 1000;
+
     private const MAX_RETRY_ATTEMPTS = 3;
 
     private ?AMQPChannel $amqpChannel = null;
+
     private ?RabbitMQJob $rabbitMQJob = null;
+
     private ?ExchangeManager $exchangeManager = null;
+
     private ?ExponentialBackoff $backoff = null;
+
     private ?PublisherConfirms $publisherConfirms = null;
+
     private ?TransactionManager $transactionManager = null;
+
     private ?RpcClient $rpcClient = null;
 
     public function __construct(
