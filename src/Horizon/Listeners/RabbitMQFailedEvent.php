@@ -12,9 +12,7 @@ class RabbitMQFailedEvent
 {
     private const HORIZON_JOB_FAILED = 'Laravel\\Horizon\\Events\\JobFailed';
 
-    public function __construct(private Dispatcher $events)
-    {
-    }
+    public function __construct(private Dispatcher $events) {}
 
     public function handle(LaravelJobFailed $event): void
     {

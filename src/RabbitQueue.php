@@ -202,7 +202,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         try {
             $queueName = $this->getQueue($queue);
 
-            if (!$this->queueExists($queueName)) {
+            if (! $this->queueExists($queueName)) {
                 $this->declareQueue($queueName);
             }
 
@@ -274,7 +274,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     public function close(): void
     {
-        if ($this->rabbitMQJob !== null && !$this->rabbitMQJob->isDeletedOrReleased()) {
+        if ($this->rabbitMQJob !== null && ! $this->rabbitMQJob->isDeletedOrReleased()) {
             $this->reject($this->rabbitMQJob, true);
         }
 
@@ -362,7 +362,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         /** @var class-string<RabbitMQJob> $job */
         $job = config('queue.connections.rabbitmq.options.queue.job', RabbitMQJob::class);
 
-        if (!is_string($job) || !is_a($job, RabbitMQJob::class, true)) {
+        if (! is_string($job) || ! is_a($job, RabbitMQJob::class, true)) {
             throw new Exception(sprintf('Class %s must extend: %s', is_string($job) ? $job : gettype($job), RabbitMQJob::class));
         }
 
@@ -626,7 +626,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     public function rpcCall(string $queue, string $message, array $headers = []): string
     {
-        if (!$this->isRpcEnabled()) {
+        if (! $this->isRpcEnabled()) {
             throw new Exception('RPC is not enabled in configuration');
         }
 
@@ -635,7 +635,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     public function transaction(callable $callback): mixed
     {
-        if (!$this->isTransactionsEnabled()) {
+        if (! $this->isTransactionsEnabled()) {
             throw new Exception('Transactions are not enabled in configuration');
         }
 
@@ -652,7 +652,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         }
 
         $priority = $queueConfig['priority'] ?? ($this->shouldPrioritizeDelayed() ? $this->getQueueMaxPriority() : null);
-        if (is_numeric($priority) && (int) $priority > 0 && !$this->isQuorumQueue($queueConfig)) {
+        if (is_numeric($priority) && (int) $priority > 0 && ! $this->isQuorumQueue($queueConfig)) {
             $arguments['x-max-priority'] = min((int) $priority, 255);
         }
 
@@ -736,7 +736,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     ): void {
         $dlxConfig = config('queue.connections.rabbitmq.dead_letter', []);
 
-        if (!($dlxConfig['enabled'] ?? true)) {
+        if (! ($dlxConfig['enabled'] ?? true)) {
             return;
         }
 

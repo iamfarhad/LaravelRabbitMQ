@@ -25,9 +25,7 @@ class RabbitMQConnector implements ConnectorInterface
 
     private static ?PoolManager $poolManager = null;
 
-    public function __construct(private Dispatcher $dispatcher)
-    {
-    }
+    public function __construct(private Dispatcher $dispatcher) {}
 
     /**
      * @throws ConnectionException
