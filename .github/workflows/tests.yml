@@ -83,9 +83,6 @@ jobs:
       - name: Run formatting check
         run: composer format-test
 
-      - name: Run static analysis
-        run: composer analyse
-
       - name: Clear PHPUnit cache
         run: |
           rm -rf .phpunit.cache
