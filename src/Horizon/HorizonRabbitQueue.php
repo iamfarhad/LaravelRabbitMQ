@@ -10,6 +10,16 @@ use Illuminate\Contracts\Events\Dispatcher;
 
 class HorizonRabbitQueue extends RabbitQueue
 {
+    private const HORIZON_JOB_PAYLOAD = 'Laravel\\Horizon\\JobPayload';
+
+    private const HORIZON_JOB_PENDING = 'Laravel\\Horizon\\Events\\JobPending';
+
+    private const HORIZON_JOB_PUSHED = 'Laravel\\Horizon\\Events\\JobPushed';
+
+    private const HORIZON_JOB_RESERVED = 'Laravel\\Horizon\\Events\\JobReserved';
+
+    private const HORIZON_JOB_DELETED = 'Laravel\\Horizon\\Events\\JobDeleted';
+
     private string|object|null $lastPushed = null;
 
     public function readyNow(?string $queue = null): int
@@ -29,10 +39,10 @@ class HorizonRabbitQueue extends RabbitQueue
         $payload = $this->prepareHorizonPayload((string) $payload, $this->lastPushed);
         $queueName = $this->getQueue($queue);
 
-        $this->dispatchHorizonEvent($queueName, \Laravel\Horizon\Events\JobPending::class, [$payload]);
+        $this->dispatchHorizonEvent($queueName, self::HORIZON_JOB_PENDING, [$payload]);
 
         return tap(parent::pushRaw($payload, $queue, $options), function () use ($queueName, $payload): void {
-            $this->dispatchHorizonEvent($queueName, \Laravel\Horizon\Events\JobPushed::class, [$payload]);
+            $this->dispatchHorizonEvent($queueName, self::HORIZON_JOB_PUSHED, [$payload]);
         });
     }
 
@@ -44,10 +54,10 @@ class HorizonRabbitQueue extends RabbitQueue
         );
         $queueName = $this->getQueue($queue);
 
-        $this->dispatchHorizonEvent($queueName, \Laravel\Horizon\Events\JobPending::class, [$payload]);
+        $this->dispatchHorizonEvent($queueName, self::HORIZON_JOB_PENDING, [$payload]);
 
         return tap(parent::laterRaw($delay, $payload, $queue), function () use ($queueName, $payload): void {
-            $this->dispatchHorizonEvent($queueName, \Laravel\Horizon\Events\JobPushed::class, [$payload]);
+            $this->dispatchHorizonEvent($queueName, self::HORIZON_JOB_PUSHED, [$payload]);
         });
     }
 
@@ -57,7 +67,7 @@ class HorizonRabbitQueue extends RabbitQueue
             if ($job instanceof RabbitMQJob) {
                 $this->dispatchHorizonEvent(
                     $this->getQueue($queue),
-                    \Laravel\Horizon\Events\JobReserved::class,
+                    self::HORIZON_JOB_RESERVED,
                     [$job->getRawBody()]
                 );
             }
@@ -69,7 +79,7 @@ class HorizonRabbitQueue extends RabbitQueue
         if ($job instanceof RabbitMQJob) {
             $this->dispatchHorizonEvent(
                 $this->getQueue($queue),
-                \Laravel\Horizon\Events\JobDeleted::class,
+                self::HORIZON_JOB_DELETED,
                 [$job, $job->getRawBody()]
             );
         }
@@ -77,11 +87,11 @@ class HorizonRabbitQueue extends RabbitQueue
 
     private function prepareHorizonPayload(string $payload, string|object|null $job): string
     {
-        if (! class_exists(\Laravel\Horizon\JobPayload::class)) {
+        if (! class_exists(self::HORIZON_JOB_PAYLOAD)) {
             return $payload;
         }
 
-        return (new \Laravel\Horizon\JobPayload($payload))->prepare($job)->value;
+        return (new (self::HORIZON_JOB_PAYLOAD)($payload))->prepare($job)->value;
     }
 
     /**
