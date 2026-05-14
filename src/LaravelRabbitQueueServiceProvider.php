@@ -15,8 +15,10 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(
             __DIR__.'/../config/rabbitmq.php',
-            'queue.connections.rabbitmq'
+            'rabbitmq'
         );
+
+        $this->configureRabbitMqConnection();
 
         if ($this->app->runningInConsole()) {
             $this->app->singleton('rabbitmq.consumer', function ($app): Consumer {
@@ -57,5 +59,16 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
                 __DIR__.'/../config/rabbitmq.php' => config_path('rabbitmq.php'),
             ], 'config');
         }
+    }
+
+    private function configureRabbitMqConnection(): void
+    {
+        $rabbitmqConfig = $this->app['config']->get('rabbitmq', []);
+        $queueConnectionConfig = $this->app['config']->get('queue.connections.rabbitmq', []);
+
+        $this->app['config']->set(
+            'queue.connections.rabbitmq',
+            array_merge($rabbitmqConfig, $queueConnectionConfig)
+        );
     }
 }
