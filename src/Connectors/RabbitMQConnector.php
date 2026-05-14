@@ -98,7 +98,7 @@ class RabbitMQConnector implements ConnectorInterface
 
     private function registerHorizonListeners(RabbitQueue $queue): void
     {
-        if (! $queue instanceof HorizonRabbitQueue || ! class_exists(self::HORIZON_JOB_FAILED)) {
+        if (!$queue instanceof HorizonRabbitQueue || !class_exists(self::HORIZON_JOB_FAILED)) {
             return;
         }
 
