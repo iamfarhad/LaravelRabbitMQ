@@ -7,6 +7,9 @@ return [
     'queue' => env('RABBITMQ_QUEUE', 'default'),
     'after_commit' => env('RABBITMQ_AFTER_COMMIT', false),
 
+    // Set to "horizon" to enable optional Horizon event integration when Laravel Horizon is installed.
+    'worker' => env('RABBITMQ_WORKER', 'default'),
+
     // Backward compatible single host config. You may also replace this with a list of hosts:
     // 'hosts' => [
     //     ['host' => 'rabbitmq-1', 'port' => 5672, 'user' => 'guest', 'password' => 'guest', 'vhost' => '/'],
@@ -47,6 +50,12 @@ return [
         'retry_delay' => env('RABBITMQ_RETRY_DELAY', 1000), // milliseconds
         'health_check_enabled' => env('RABBITMQ_HEALTH_CHECK_ENABLED', true),
         'health_check_interval' => env('RABBITMQ_HEALTH_CHECK_INTERVAL', 30), // seconds
+    ],
+
+    // Octane Integration
+    'octane' => [
+        // Keep false by default for performance. Enable when each request should start with fresh AMQP pools.
+        'reset_on_request' => env('RABBITMQ_OCTANE_RESET_ON_REQUEST', false),
     ],
 
     // Exponential Backoff Configuration
@@ -136,6 +145,8 @@ return [
         ],
         'queue' => [
             'job' => RabbitMQJob::class,
+            // rabbitmq:consume supports "poll" (basic_get) and "consume" (basic_consume) modes.
+            'consume_mode' => env('RABBITMQ_CONSUME_MODE', 'poll'),
             'qos' => [
                 'prefetch_size' => 0,
                 'prefetch_count' => 10,
