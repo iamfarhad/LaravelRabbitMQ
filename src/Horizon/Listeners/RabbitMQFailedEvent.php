@@ -10,16 +10,20 @@ use Illuminate\Queue\Events\JobFailed as LaravelJobFailed;
 
 class RabbitMQFailedEvent
 {
-    public function __construct(private Dispatcher $events) {}
+    private const HORIZON_JOB_FAILED = 'Laravel\\Horizon\\Events\\JobFailed';
+
+    public function __construct(private Dispatcher $events)
+    {
+    }
 
     public function handle(LaravelJobFailed $event): void
     {
-        if (! $event->job instanceof RabbitMQJob || ! class_exists(\Laravel\Horizon\Events\JobFailed::class)) {
+        if (! $event->job instanceof RabbitMQJob || ! class_exists(self::HORIZON_JOB_FAILED)) {
             return;
         }
 
         $this->events->dispatch(
-            (new \Laravel\Horizon\Events\JobFailed(
+            (new (self::HORIZON_JOB_FAILED)(
                 $event->exception,
                 $event->job,
                 $event->job->getRawBody()
