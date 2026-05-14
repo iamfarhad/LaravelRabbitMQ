@@ -22,6 +22,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -33,7 +35,6 @@ jobs:
         run: composer update --prefer-dist --no-progress --with-all-dependencies
 
       - name: Run Pint and commit fixes
-        if: github.event_name == 'push'
         run: |
           composer format
 
@@ -48,6 +49,5 @@ jobs:
           git commit -m "Apply Pint formatting"
           git push
 
-      - name: Run Pint in test mode
-        if: github.event_name == 'pull_request'
+      - name: Verify Pint formatting
         run: composer format-test
