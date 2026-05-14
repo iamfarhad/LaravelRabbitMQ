@@ -5,7 +5,16 @@ use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 return [
     'driver' => 'rabbitmq',
     'queue' => env('RABBITMQ_QUEUE', 'default'),
+    'after_commit' => env('RABBITMQ_AFTER_COMMIT', false),
 
+    // Set to "horizon" to enable optional Horizon event integration when Laravel Horizon is installed.
+    'worker' => env('RABBITMQ_WORKER', 'default'),
+
+    // Backward compatible single host config. You may also replace this with a list of hosts:
+    // 'hosts' => [
+    //     ['host' => 'rabbitmq-1', 'port' => 5672, 'user' => 'guest', 'password' => 'guest', 'vhost' => '/'],
+    //     ['host' => 'rabbitmq-2', 'port' => 5672, 'user' => 'guest', 'password' => 'guest', 'vhost' => '/'],
+    // ],
     'hosts' => [
         'host' => env('RABBITMQ_HOST', '127.0.0.1'),
         'port' => env('RABBITMQ_PORT', 5672),
@@ -15,25 +24,38 @@ return [
         'lazy' => env('RABBITMQ_LAZY_CONNECTION', true),
         'keepalive' => env('RABBITMQ_KEEPALIVE_CONNECTION', false),
         'heartbeat' => env('RABBITMQ_HEARTBEAT_CONNECTION', 0),
+        'read_timeout' => env('RABBITMQ_READ_TIMEOUT', 0),
+        'write_timeout' => env('RABBITMQ_WRITE_TIMEOUT', 0),
+        'connect_timeout' => env('RABBITMQ_CONNECT_TIMEOUT', 0),
         'secure' => env('RABBITMQ_SECURE', false),
     ],
 
+    // Publishing Configuration for normal Laravel queue jobs.
+    'exchange' => env('RABBITMQ_EXCHANGE', ''),
+    'exchange_type' => env('RABBITMQ_EXCHANGE_TYPE', 'direct'),
+    'exchange_routing_key' => env('RABBITMQ_EXCHANGE_ROUTING_KEY', '%s'),
+    'prioritize_delayed' => env('RABBITMQ_PRIORITIZE_DELAYED', false),
+    'queue_max_priority' => env('RABBITMQ_QUEUE_MAX_PRIORITY', 10),
+    'quorum' => env('RABBITMQ_QUEUE_QUORUM', false),
+    'reroute_failed' => env('RABBITMQ_REROUTE_FAILED', false),
+    'failed_exchange' => env('RABBITMQ_FAILED_EXCHANGE', ''),
+    'failed_routing_key' => env('RABBITMQ_FAILED_ROUTING_KEY', '%s.failed'),
+
     // Connection and Channel Pool Configuration
     'pool' => [
-        // Connection Pool Settings
         'max_connections' => env('RABBITMQ_MAX_CONNECTIONS', 10),
         'min_connections' => env('RABBITMQ_MIN_CONNECTIONS', 2),
-
-        // Channel Pool Settings
         'max_channels_per_connection' => env('RABBITMQ_MAX_CHANNELS_PER_CONNECTION', 100),
-
-        // Retry Strategy
         'max_retries' => env('RABBITMQ_MAX_RETRIES', 3),
         'retry_delay' => env('RABBITMQ_RETRY_DELAY', 1000), // milliseconds
-
-        // Health Check Settings
         'health_check_enabled' => env('RABBITMQ_HEALTH_CHECK_ENABLED', true),
         'health_check_interval' => env('RABBITMQ_HEALTH_CHECK_INTERVAL', 30), // seconds
+    ],
+
+    // Octane Integration
+    'octane' => [
+        // Keep false by default for performance. Enable when each request should start with fresh AMQP pools.
+        'reset_on_request' => env('RABBITMQ_OCTANE_RESET_ON_REQUEST', false),
     ],
 
     // Exponential Backoff Configuration
@@ -54,13 +76,6 @@ return [
             'auto_delete' => env('RABBITMQ_EXCHANGE_AUTO_DELETE', false),
             'arguments' => [],
         ],
-        // Add custom exchanges here
-        // 'notifications' => [
-        //     'name' => 'notifications',
-        //     'type' => 'topic',
-        //     'durable' => true,
-        //     'auto_delete' => false,
-        // ],
     ],
 
     // Queue Configuration
@@ -72,6 +87,7 @@ return [
             'exclusive' => env('RABBITMQ_QUEUE_EXCLUSIVE', false),
             'lazy' => env('RABBITMQ_QUEUE_LAZY', false),
             'priority' => env('RABBITMQ_QUEUE_PRIORITY', null), // null or max priority (1-255)
+            'quorum' => env('RABBITMQ_QUEUE_QUORUM', false),
             'arguments' => [],
             'bindings' => [
                 [
@@ -80,12 +96,6 @@ return [
                 ],
             ],
         ],
-        // Add custom queues here
-        // 'high-priority' => [
-        //     'name' => 'high-priority',
-        //     'durable' => true,
-        //     'priority' => 10,
-        // ],
     ],
 
     // Dead Letter Exchange Configuration
@@ -101,7 +111,7 @@ return [
     'delayed_message' => [
         'enabled' => env('RABBITMQ_DELAYED_MESSAGE_ENABLED', false),
         'exchange' => env('RABBITMQ_DELAYED_EXCHANGE', 'delayed'),
-        'plugin_enabled' => env('RABBITMQ_DELAYED_PLUGIN_ENABLED', false), // rabbitmq_delayed_message_exchange plugin
+        'plugin_enabled' => env('RABBITMQ_DELAYED_PLUGIN_ENABLED', false),
     ],
 
     // RPC Configuration
@@ -123,6 +133,9 @@ return [
     ],
 
     'options' => [
+        'read_timeout' => env('RABBITMQ_READ_TIMEOUT', 0),
+        'write_timeout' => env('RABBITMQ_WRITE_TIMEOUT', 0),
+        'connect_timeout' => env('RABBITMQ_CONNECT_TIMEOUT', 0),
         'ssl_options' => [
             'cafile' => env('RABBITMQ_SSL_CAFILE', null),
             'local_cert' => env('RABBITMQ_SSL_LOCALCERT', null),
@@ -132,6 +145,8 @@ return [
         ],
         'queue' => [
             'job' => RabbitMQJob::class,
+            // rabbitmq:consume supports "poll" (basic_get) and "consume" (basic_consume) modes.
+            'consume_mode' => env('RABBITMQ_CONSUME_MODE', 'poll'),
             'qos' => [
                 'prefetch_size' => 0,
                 'prefetch_count' => 10,

@@ -1,12 +1,15 @@
 name: Coding Standards
 
 on:
-    push:
-      branches:
-        - '*'
-    pull_request:
-      branches:
-        - '*'
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+permissions:
+  contents: write
 
 env:
   COMPOSER_PROCESS_TIMEOUT: 0
@@ -14,19 +17,37 @@ env:
   COMPOSER_NO_AUDIT: 1
 
 jobs:
-  phplint:
-      permissions:
-          contents: write
-      runs-on: ubuntu-latest
-      steps:
-          - uses: actions/checkout@v3
-          - name: "laravel-pint"
-            uses: aglipanci/laravel-pint-action@latest
-            with:
-                configPath: './pint.json'
+  pint:
+    runs-on: ubuntu-latest
 
-          - name: Commit changes
-            uses: stefanzweifel/git-auto-commit-action@v4
-            with:
-                commit_message: PHP Linting (Pint)
-                skip_fetch: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-progress --with-all-dependencies
+
+      - name: Run Pint and commit fixes
+        run: |
+          composer format
+
+          if git diff --quiet; then
+            echo "No Pint changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Apply Pint formatting"
+          git push
+
+      - name: Verify Pint formatting
+        run: composer format-test

@@ -3,7 +3,11 @@
 namespace iamfarhad\LaravelRabbitMQ;
 
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\ExchangeDeclareCommand;
 use iamfarhad\LaravelRabbitMQ\Console\Commands\PoolStatsCommand;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\QueueDeclareCommand;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\QueueDeleteCommand;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\QueuePurgeCommand;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Queue\QueueManager;
@@ -42,6 +46,10 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
             $this->commands([
                 ConsumeCommand::class,
                 PoolStatsCommand::class,
+                ExchangeDeclareCommand::class,
+                QueueDeclareCommand::class,
+                QueuePurgeCommand::class,
+                QueueDeleteCommand::class,
             ]);
         }
     }

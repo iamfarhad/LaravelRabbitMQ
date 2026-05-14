@@ -34,7 +34,8 @@ final class ConsumeCommand extends WorkCommand
                             {--tries=1 : Number of times to attempt a job before logging it failed}
                             {--rest=0 : Number of seconds to rest between jobs}
                             {--max-priority=null : Maximum priority level to consume}
-                            {--consumer-tag}
+                            {--consumer-tag= : Custom RabbitMQ consumer tag}
+                            {--consume-mode= : Consumer mode: poll or consume}
                             {--num-processes=2 : Number of processes to run in parallel}
                            ';
 
@@ -58,12 +59,10 @@ final class ConsumeCommand extends WorkCommand
             return 1;
         }
 
-        // Skip forking if only one process is needed
         if ($numProcesses === 1) {
             return $this->consume();
         }
 
-        // Check if pcntl extension is available
         if (! extension_loaded('pcntl')) {
             $this->error('The pcntl extension is required for parallel processing');
 
@@ -82,15 +81,13 @@ final class ConsumeCommand extends WorkCommand
             }
 
             if ($pid === 0) {
-                // Child process
                 exit($this->consume());
             }
-            // Parent process
+
             $childPids[] = $pid;
             $this->info("Started worker process $pid");
         }
 
-        // Set up signal handling for graceful termination
         if (function_exists('pcntl_signal')) {
             pcntl_signal(SIGTERM, function () use (&$childPids) {
                 foreach ($childPids as $pid) {
@@ -101,7 +98,6 @@ final class ConsumeCommand extends WorkCommand
             });
         }
 
-        // Wait for all child processes to finish
         foreach ($childPids as $pid) {
             pcntl_waitpid($pid, $status);
 
@@ -133,8 +129,8 @@ final class ConsumeCommand extends WorkCommand
             $consumer->setContainer($this->laravel);
             $consumer->setName((string) $this->option('name'));
             $consumer->setConsumerTag($this->generateConsumerTag());
+            $consumer->setConsumeMode($this->consumeMode());
 
-            // Only set max priority if it's provided and not null
             $maxPriority = $this->option('max-priority');
             if ($maxPriority !== null && $maxPriority !== '') {
                 $consumer->setMaxPriority((int) $maxPriority);
@@ -146,6 +142,17 @@ final class ConsumeCommand extends WorkCommand
 
             return 1;
         }
+    }
+
+    private function consumeMode(): string
+    {
+        $mode = $this->option('consume-mode');
+
+        if ($mode !== null && $mode !== '') {
+            return (string) $mode;
+        }
+
+        return (string) config('queue.connections.rabbitmq.options.queue.consume_mode', 'poll');
     }
 
     /**
