@@ -24,7 +24,7 @@ class ConnectionFactory
     }
 
     /**
-     * Create a new AMQP connection with retry strategy
+     * Create a new AMQP connection with retry strategy.
      *
      * @throws ConnectionException
      */
@@ -65,34 +65,67 @@ class ConnectionFactory
     }
 
     /**
-     * Build connection configuration array
+     * Build connection configuration array.
      */
     private function buildConnectionConfig(): array
     {
+        $hostConfig = $this->selectHostConfig();
+        $options = $this->config['options'] ?? [];
+
         $config = [
-            'host' => $this->config['hosts']['host'] ?? '127.0.0.1',
-            'port' => $this->config['hosts']['port'] ?? 5672,
-            'login' => $this->config['hosts']['user'] ?? 'guest',
-            'password' => $this->config['hosts']['password'] ?? 'guest',
-            'vhost' => $this->config['hosts']['vhost'] ?? '/',
+            'host' => $hostConfig['host'] ?? '127.0.0.1',
+            'port' => $hostConfig['port'] ?? 5672,
+            'login' => $hostConfig['user'] ?? 'guest',
+            'password' => $hostConfig['password'] ?? 'guest',
+            'vhost' => $hostConfig['vhost'] ?? '/',
         ];
 
-        // Add optional connection parameters (but be selective about which ones)
         $optionalParams = [
             'heartbeat' => 'heartbeat',
-            // Note: timeouts can cause connection issues with some AMQP configurations
-            // 'read_timeout' => 'read_timeout',
-            // 'write_timeout' => 'write_timeout',
-            // 'connect_timeout' => 'connect_timeout',
+            'read_timeout' => 'read_timeout',
+            'write_timeout' => 'write_timeout',
+            'connect_timeout' => 'connect_timeout',
         ];
 
         foreach ($optionalParams as $configKey => $amqpKey) {
-            if (isset($this->config['hosts'][$configKey]) && $this->config['hosts'][$configKey] > 0) {
-                $config[$amqpKey] = $this->config['hosts'][$configKey];
+            $value = $hostConfig[$configKey] ?? $options[$configKey] ?? null;
+            if (is_numeric($value) && (float) $value > 0) {
+                $config[$amqpKey] = is_float($value + 0) ? (float) $value : (int) $value;
             }
         }
 
         return $config;
+    }
+
+    /**
+     * Select a host from either the legacy associative host config or a list of hosts.
+     */
+    private function selectHostConfig(): array
+    {
+        $hosts = $this->config['hosts'] ?? [];
+
+        if ($hosts === []) {
+            return [];
+        }
+
+        if ($this->isListOfHosts($hosts)) {
+            $availableHosts = array_values(array_filter($hosts, 'is_array'));
+
+            if ($availableHosts === []) {
+                return [];
+            }
+
+            shuffle($availableHosts);
+
+            return $availableHosts[0];
+        }
+
+        return $hosts;
+    }
+
+    private function isListOfHosts(array $hosts): bool
+    {
+        return array_is_list($hosts) && isset($hosts[0]) && is_array($hosts[0]);
     }
 
     private function retryDelayInMicroseconds(int|float $retryDelay): int
@@ -101,7 +134,7 @@ class ConnectionFactory
     }
 
     /**
-     * Test if connection is alive
+     * Test if connection is alive.
      */
     public function isConnectionAlive(AMQPConnection $connection): bool
     {
@@ -113,7 +146,7 @@ class ConnectionFactory
     }
 
     /**
-     * Close connection safely
+     * Close connection safely.
      */
     public function closeConnection(AMQPConnection $connection): void
     {
