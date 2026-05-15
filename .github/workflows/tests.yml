@@ -23,33 +23,79 @@ jobs:
           - php: '8.2'
             laravel: '11.*'
             testbench: '9.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.2'
             laravel: '12.*'
             testbench: '10.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.3'
             laravel: '11.*'
             testbench: '9.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.3'
             laravel: '12.*'
             testbench: '10.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.3'
             laravel: '13.*'
             testbench: '11.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.4'
             laravel: '11.*'
             testbench: '9.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.4'
             laravel: '12.*'
             testbench: '10.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.4'
             laravel: '13.*'
             testbench: '11.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.5'
+            laravel: '11.*'
+            testbench: '9.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.5'
+            laravel: '12.*'
+            testbench: '10.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.5'
+            laravel: '13.*'
+            testbench: '11.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.2'
+            laravel: '11.*'
+            testbench: '9.*'
+            dependency-version: prefer-lowest
+            rabbitmq: '3.13-management'
+          - php: '8.5'
+            laravel: '13.*'
+            testbench: '11.*'
+            dependency-version: prefer-lowest
+            rabbitmq: '4-management'
+          - php: '8.4'
+            laravel: '12.*'
+            testbench: '10.*'
+            dependency-version: prefer-stable
+            rabbitmq: '4-management'
 
-    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }}
+    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }} - ${{ matrix.dependency-version }} - RabbitMQ ${{ matrix.rabbitmq }}
 
     services:
       rabbitmq:
-        image: rabbitmq:3-management
+        image: rabbitmq:${{ matrix.rabbitmq }}
         env:
           RABBITMQ_DEFAULT_USER: laravel
           RABBITMQ_DEFAULT_PASS: secret
@@ -78,7 +124,11 @@ jobs:
         run: |
           composer require "illuminate/console:${{ matrix.laravel }}" "illuminate/database:${{ matrix.laravel }}" "illuminate/filesystem:${{ matrix.laravel }}" --no-update
           composer require "orchestra/testbench:${{ matrix.testbench }}" --dev --no-update
-          composer update --prefer-dist --no-progress --with-all-dependencies
+          if [ "${{ matrix.dependency-version }}" = "prefer-lowest" ]; then
+            composer update --prefer-lowest --prefer-stable --prefer-dist --no-progress --with-all-dependencies
+          else
+            composer update --prefer-stable --prefer-dist --no-progress --with-all-dependencies
+          fi
 
       - name: Run formatting check
         run: composer format-test
