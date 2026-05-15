@@ -10,7 +10,6 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
-use JsonException;
 use Throwable;
 
 class RabbitMQJob extends Job implements JobContract
