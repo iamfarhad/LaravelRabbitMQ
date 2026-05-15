@@ -1,10 +1,11 @@
-# Comparison vs vladimir-yuldashev/laravel-rabbitmq
+# Comparison: LaravelRabbitMQ vs vladimir-yuldashev/laravel-queue-rabbitmq
 
-| Feature                        | iamfarhad/LaravelRabbitMQ          | vladimir-yuldashev/laravel-rabbitmq |
-|--------------------------------|------------------------------------|-------------------------------------|
-| Native ext-amqp                | Yes (high performance)             | PHP-AMQP / fallback                 |
-| Connection / Channel Pooling   | Advanced                           | Basic                               |
-| Laravel Horizon integration    | Full                               | Partial                             |
-| Octane support                 | Yes                                | No                                  |
-| Production multi-host support  | Yes                                | Limited                             |
-| Quorum + Priority queues       | Yes                                | Limited                             |
+| Feature                          | **This Package**                  | vladimir-yuldashev Package          |
+|----------------------------------|-----------------------------------|-------------------------------------|
+| **Laravel Support**              | Laravel 11, 12, **13**            | Older versions                      |
+| **PHP Support**                  | **8.2 – 8.5**                     | Up to 8.3                           |
+| **RabbitMQ**                     | **3.13 + 4.x**                    | Older versions                      |
+| **Performance**                  | Native ext-amqp + pooling         | Basic                               |
+| **Modern Features**              | Horizon, Octane, Quorum queues    | Limited                             |
+| **Maintenance**                  | Active + rich docs                | Slow                                |
+| **CI / Testing**                 | Full matrix + prefer-lowest       | Basic                               |
