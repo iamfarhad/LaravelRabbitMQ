@@ -72,4 +72,6 @@ class RabbitMQJobTest extends UnitTestCase
     }
 }
 
-class CustomRabbitMQJobForTest extends RabbitMQJob {}
+class CustomRabbitMQJobForTest extends RabbitMQJob
+{
+}
