@@ -10,6 +10,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
+use JsonException;
 use Throwable;
 
 class RabbitMQJob extends Job implements JobContract
@@ -29,6 +30,33 @@ class RabbitMQJob extends Job implements JobContract
         $this->connectionName = $connectionName;
         $this->queue = $queue;
         $this->decoded = $this->payload();
+    }
+
+    public function payload(): array
+    {
+        try {
+            $payload = json_decode($this->getRawBody(), true, 512, JSON_THROW_ON_ERROR);
+
+            if (is_array($payload)) {
+                return $payload;
+            }
+        } catch (JsonException) {
+        }
+
+        return [
+            'id' => $this->amqpEnvelope->getCorrelationId() ?: null,
+            'raw' => $this->getRawBody(),
+            'headers' => $this->headers(),
+            'displayName' => static::class,
+            'job' => static::class,
+            'maxTries' => null,
+            'maxExceptions' => null,
+            'failOnTimeout' => false,
+            'backoff' => null,
+            'timeout' => null,
+            'retryUntil' => null,
+            'data' => [],
+        ];
     }
 
     public function getJobId(): ?string
