@@ -146,6 +146,7 @@ jobs:
           fi
 
       - name: Run formatting check
+        if: matrix.dependency-version != 'prefer-lowest'
         run: composer format-test
 
       - name: Clear PHPUnit cache
