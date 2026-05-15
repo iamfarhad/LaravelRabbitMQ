@@ -40,8 +40,8 @@
     "require": {
         "php": "^8.2",
         "ext-amqp": "*",
-        "illuminate/queue": "^11.0|^12.0|^13.0",
-        "illuminate/support": "^11.0|^12.0|^13.0"
+        "illuminate/queue": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/support": "^10.0|^11.0|^12.0|^13.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^9.0|^10.0|^11.0",
@@ -52,7 +52,9 @@
         "laravel/pint": "^1.10"
     },
     "suggest": {
-        "ext-pcntl": "Required only when running rabbitmq:consume with --num-processes greater than 1."
+        "ext-pcntl": "Required only when running rabbitmq:consume with --num-processes greater than 1.",
+        "laravel/horizon": "Install to enable optional Horizon compatibility via RABBITMQ_WORKER=horizon.",
+        "laravel/octane": "Install to enable optional Octane pool reset compatibility."
     },
     "autoload": {
         "psr-4": {
