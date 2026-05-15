@@ -2,10 +2,19 @@
 
 ## Supported Versions
 
-This project supports the latest minor versions of Laravel and PHP.
+Only the latest minor/patch versions of active branches receive security updates.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please email **farhad.pd@gmail.com**.
+Please report security vulnerabilities **privately** to:
 
-We will respond within 48 hours.
+**Email:** farhad.pd@gmail.com
+
+**Preferred:** Open a private security advisory on GitHub (if enabled) or email directly.
+
+## Disclosure Timeline
+
+- Initial response: within 48 hours
+- Patch release: within 7-14 days (depending on severity)
+
+Thank you for helping keep LaravelRabbitMQ secure.
