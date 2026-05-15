@@ -21,6 +21,11 @@ jobs:
       matrix:
         include:
           - php: '8.2'
+            laravel: '10.*'
+            testbench: '8.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.2'
             laravel: '11.*'
             testbench: '9.*'
             dependency-version: prefer-stable
@@ -31,6 +36,11 @@ jobs:
             dependency-version: prefer-stable
             rabbitmq: '3.13-management'
           - php: '8.3'
+            laravel: '10.*'
+            testbench: '8.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.3'
             laravel: '11.*'
             testbench: '9.*'
             dependency-version: prefer-stable
@@ -74,6 +84,11 @@ jobs:
             laravel: '13.*'
             testbench: '11.*'
             dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.2'
+            laravel: '10.*'
+            testbench: '8.*'
+            dependency-version: prefer-lowest
             rabbitmq: '3.13-management'
           - php: '8.2'
             laravel: '11.*'
