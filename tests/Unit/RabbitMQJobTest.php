@@ -2,15 +2,10 @@
 
 declare(strict_types=1);
 
-// Test only basic job structure without AMQP connections
-// Connection-dependent tests are covered in Feature tests
-
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Illuminate\Queue\Jobs\Job;
 
-// RabbitMQJob tests require real AMQPEnvelope objects which need connections
-// All job functionality is thoroughly tested in Feature tests with real RabbitMQ
 class RabbitMQJobTest extends UnitTestCase
 {
     public function testValidatesJobClassExists(): void
@@ -22,7 +17,6 @@ class RabbitMQJobTest extends UnitTestCase
     {
         $reflection = new ReflectionClass(RabbitMQJob::class);
 
-        // Check that it extends the correct base class
         $this->assertTrue($reflection->isSubclassOf(Job::class));
     }
 
@@ -30,34 +24,52 @@ class RabbitMQJobTest extends UnitTestCase
     {
         $reflection = new ReflectionClass(RabbitMQJob::class);
 
-        // Check for required methods
         $this->assertTrue($reflection->hasMethod('getRawBody'));
         $this->assertTrue($reflection->hasMethod('delete'));
         $this->assertTrue($reflection->hasMethod('release'));
         $this->assertTrue($reflection->hasMethod('attempts'));
         $this->assertTrue($reflection->hasMethod('getJobId'));
+        $this->assertTrue($reflection->hasMethod('headers'));
+        $this->assertTrue($reflection->hasMethod('exchangeName'));
+        $this->assertTrue($reflection->hasMethod('routingKey'));
+        $this->assertTrue($reflection->hasMethod('deliveryTag'));
     }
 
     public function testJobClassMethodsArePublic(): void
     {
         $reflection = new ReflectionClass(RabbitMQJob::class);
 
-        $methods = ['getRawBody', 'delete', 'release', 'attempts', 'getJobId'];
+        $methods = [
+            'getRawBody',
+            'delete',
+            'release',
+            'attempts',
+            'getJobId',
+            'headers',
+            'exchangeName',
+            'routingKey',
+            'deliveryTag',
+        ];
 
         foreach ($methods as $methodName) {
-            if ($reflection->hasMethod($methodName)) {
-                $method = $reflection->getMethod($methodName);
-                $this->assertTrue($method->isPublic(), "Method {$methodName} should be public");
-            }
+            $method = $reflection->getMethod($methodName);
+            $this->assertTrue($method->isPublic(), "Method {$methodName} should be public");
         }
     }
 
-    public function testJobClassIsInstantiable(): void
+    public function testJobClassIsInstantiableAndExtensible(): void
     {
         $reflection = new ReflectionClass(RabbitMQJob::class);
 
-        // The class should be instantiable (not abstract)
         $this->assertFalse($reflection->isAbstract());
+        $this->assertFalse($reflection->isFinal());
         $this->assertTrue($reflection->isInstantiable());
     }
+
+    public function testConfiguredCustomJobClassCanExtendRabbitMQJob(): void
+    {
+        $this->assertTrue(is_a(CustomRabbitMQJobForTest::class, RabbitMQJob::class, true));
+    }
 }
+
+class CustomRabbitMQJobForTest extends RabbitMQJob {}

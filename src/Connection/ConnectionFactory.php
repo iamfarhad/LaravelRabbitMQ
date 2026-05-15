@@ -20,19 +20,13 @@ class ConnectionFactory
     {
         $this->config = $config;
         $this->maxRetries = $config['pool']['max_retries'] ?? 3;
-        $this->retryDelay = $config['pool']['retry_delay'] ?? 1000; // milliseconds
+        $this->retryDelay = $config['pool']['retry_delay'] ?? 1000;
     }
 
-    /**
-     * Create a new AMQP connection with retry strategy.
-     *
-     * @throws ConnectionException
-     */
     public function createConnection(): AMQPConnection
     {
         $connectionConfig = $this->buildConnectionConfig();
         $retryDelay = $this->retryDelay;
-
         $attempt = 0;
         $lastException = null;
 
@@ -48,37 +42,45 @@ class ConnectionFactory
 
                 if ($attempt < $this->maxRetries) {
                     usleep($this->retryDelayInMicroseconds($retryDelay));
-                    $retryDelay *= 2; // Exponential backoff for this connection attempt only
+                    $retryDelay *= 2;
                 }
             }
         }
 
         throw new ConnectionException(
-            sprintf(
-                'Failed to connect to RabbitMQ after %d attempts. Last error: %s',
-                $this->maxRetries,
-                $lastException?->getMessage() ?? 'Unknown error'
-            ),
+            sprintf('Failed to connect to RabbitMQ after %d attempts. Last error: %s', $this->maxRetries, $lastException?->getMessage() ?? 'Unknown error'),
             $lastException?->getCode() ?? 0,
             $lastException
         );
     }
 
-    /**
-     * Build connection configuration array.
-     */
+    public function buildConnectionConfigForTesting(): array
+    {
+        return $this->buildConnectionConfig();
+    }
+
     private function buildConnectionConfig(): array
     {
         $hostConfig = $this->selectHostConfig();
         $options = $this->config['options'] ?? [];
+        $transport = $this->resolveTransport($hostConfig);
 
         $config = [
             'host' => $hostConfig['host'] ?? '127.0.0.1',
-            'port' => $hostConfig['port'] ?? 5672,
+            'port' => $hostConfig['port'] ?? ($transport === 'tcp' ? 5672 : 5671),
             'login' => $hostConfig['user'] ?? 'guest',
             'password' => $hostConfig['password'] ?? 'guest',
             'vhost' => $hostConfig['vhost'] ?? '/',
         ];
+
+        if ($transport !== 'tcp') {
+            $config['connection_name'] = $transport;
+            $config['ssl'] = true;
+            $config['cacert'] = $options['ssl_options']['cafile'] ?? null;
+            $config['cert'] = $options['ssl_options']['local_cert'] ?? null;
+            $config['key'] = $options['ssl_options']['local_key'] ?? null;
+            $config['verify'] = $options['ssl_options']['verify_peer'] ?? true;
+        }
 
         $optionalParams = [
             'heartbeat' => 'heartbeat',
@@ -94,12 +96,23 @@ class ConnectionFactory
             }
         }
 
-        return $config;
+        return array_filter($config, static fn ($value) => $value !== null);
     }
 
-    /**
-     * Select a host from either the legacy associative host config or a list of hosts.
-     */
+    private function resolveTransport(array $hostConfig): string
+    {
+        $transport = strtolower((string) ($hostConfig['transport'] ?? $hostConfig['protocol'] ?? $this->config['transport'] ?? $this->config['protocol'] ?? 'tcp'));
+
+        if (($hostConfig['secure'] ?? false) === true && $transport === 'tcp') {
+            return 'ssl';
+        }
+
+        return match ($transport) {
+            'ssl', 'tls' => $transport,
+            default => 'tcp',
+        };
+    }
+
     private function selectHostConfig(): array
     {
         $hosts = $this->config['hosts'] ?? [];
@@ -133,9 +146,6 @@ class ConnectionFactory
         return max(0, (int) round($retryDelay * 1000));
     }
 
-    /**
-     * Test if connection is alive.
-     */
     public function isConnectionAlive(AMQPConnection $connection): bool
     {
         try {
@@ -145,9 +155,6 @@ class ConnectionFactory
         }
     }
 
-    /**
-     * Close connection safely.
-     */
     public function closeConnection(AMQPConnection $connection): void
     {
         try {

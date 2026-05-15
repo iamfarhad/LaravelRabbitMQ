@@ -1,0 +1,93 @@
+name: Bug report
+description: Report a reproducible bug in Laravel RabbitMQ
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please include a minimal reproduction whenever possible.
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: Composer version or commit SHA.
+      placeholder: "v1.2.3 or 6d88645"
+    validations:
+      required: true
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      placeholder: "8.3.12"
+    validations:
+      required: true
+  - type: input
+    id: laravel-version
+    attributes:
+      label: Laravel version
+      placeholder: "11.34.0"
+    validations:
+      required: true
+  - type: input
+    id: rabbitmq-version
+    attributes:
+      label: RabbitMQ version
+      placeholder: "3.13.7 or 4.0.4"
+    validations:
+      required: true
+  - type: input
+    id: amqp-version
+    attributes:
+      label: ext-amqp version
+      placeholder: "2.1.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: worker
+    attributes:
+      label: Worker command
+      options:
+        - php artisan queue:work rabbitmq
+        - php artisan rabbitmq:consume
+        - Laravel Horizon
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: consume-mode
+    attributes:
+      label: Consume mode
+      options:
+        - poll
+        - consume
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include code, config, worker command, and queue topology. Remove secrets.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or stack trace
+      render: shell
+    validations:
+      required: false

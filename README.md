@@ -5,7 +5,16 @@
 [![License](https://poser.pugx.org/iamfarhad/laravel-rabbitmq/license?format=flat-square)](https://packagist.org/packages/iamfarhad/laravel-rabbitmq)
 [![Tests](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/tests.yml/badge.svg)](https://github.com/iamfarhad/LaravelRabbitMQ/actions/workflows/tests.yml)
 
-A production-focused RabbitMQ queue driver for Laravel with native Laravel Queue integration, connection/channel pooling, configurable RabbitMQ topology, Horizon hooks, Octane-safe pool reset support, and an optional high-performance `basic_consume` worker mode.
+A production-focused RabbitMQ queue driver for Laravel with native Laravel Queue integration, connection/channel pooling, configurable RabbitMQ topology, Horizon hooks, Octane-safe pool reset support, and optional high-performance `basic_consume` worker mode.
+
+## Documentation
+
+- [Support policy and compatibility matrix](SUPPORT.md)
+- [Security policy](SECURITY.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Upgrade guide](UPGRADE.md)
+- [Migration guide](MIGRATION.md)
+- [Comparison with `vladimir-yuldashev/laravel-queue-rabbitmq`](docs/comparison-vladimir-yuldashev.md)
 
 ## Features
 
@@ -13,7 +22,6 @@ A production-focused RabbitMQ queue driver for Laravel with native Laravel Queue
 - Native `ext-amqp` implementation for high-performance AMQP operations.
 - Connection and channel pooling with health checks and retry backoff.
 - Backward-compatible single-host config and production multi-host config.
-- Connection timeout support: read, write, and connect timeout.
 - Configurable exchange, exchange type, and routing-key publishing for normal Laravel jobs.
 - Lazy queues, priority queues, quorum queues, delayed messages, dead-letter routing, and failed-message rerouting.
 - Publisher confirms, transactions, RPC helpers, exchange helpers, and queue management helpers.
@@ -26,9 +34,11 @@ A production-focused RabbitMQ queue driver for Laravel with native Laravel Queue
 
 - PHP 8.2 or higher.
 - Laravel 11.x, 12.x, or 13.x.
-- RabbitMQ 3.8 or higher.
+- RabbitMQ 3.13 or 4.x for the primary supported/tested matrix; RabbitMQ 3.8-3.12 is best effort.
 - `ext-amqp` PHP extension.
 - `ext-pcntl` is optional and only required when running `rabbitmq:consume --num-processes` with a value greater than `1`.
+
+See [SUPPORT.md](SUPPORT.md) for the full Laravel/PHP/RabbitMQ support matrix.
 
 ## Installation
 
@@ -54,7 +64,7 @@ Publish the config:
 
 ```bash
 php artisan vendor:publish \
-  --provider="iamfarhad\LaravelRabbitMQ\LaravelRabbitQueueServiceProvider" \
+  --provider="iamfarhad\\LaravelRabbitMQ\\LaravelRabbitQueueServiceProvider" \
   --tag="config"
 ```
 
@@ -82,7 +92,7 @@ Start RabbitMQ locally:
 docker run -d --name rabbitmq \
   -p 5672:5672 \
   -p 15672:15672 \
-  rabbitmq:3-management
+  rabbitmq:3.13-management
 ```
 
 Dispatch Laravel jobs normally:
@@ -131,7 +141,7 @@ The package merges `config/rabbitmq.php` into `queue.connections.rabbitmq`, so y
 
 ### Multi-host configuration
 
-Use a list of hosts for basic high-availability. The connector randomly selects a host for each new connection attempt.
+Use a list of hosts for basic high availability. The connector randomly selects a host for each new connection attempt.
 
 ```php
 'hosts' => [
@@ -176,7 +186,7 @@ RABBITMQ_HEALTH_CHECK_INTERVAL=30
 
 ## Publishing topology
 
-By default the package preserves RabbitMQ's default exchange behavior and routes jobs directly to the queue name. For production routing, configure an exchange and routing-key pattern:
+By default, the package preserves RabbitMQ's default exchange behavior and routes jobs directly to the queue name. For production routing, configure an exchange and routing-key pattern:
 
 ```env
 RABBITMQ_EXCHANGE=jobs
@@ -301,11 +311,11 @@ RABBITMQ_WORKER=horizon
 
 When Horizon is installed and `RABBITMQ_WORKER=horizon` is set, the package uses an optional Horizon-aware queue class and dispatches Horizon events for:
 
-- pending jobs
-- pushed jobs
-- reserved jobs
-- deleted jobs
-- failed jobs
+- Pending jobs
+- Pushed jobs
+- Reserved jobs
+- Deleted jobs
+- Failed jobs
 
 The package does not require Horizon. All Horizon references are guarded and inactive when Horizon is not installed.
 
@@ -496,7 +506,13 @@ composer analyse
 composer test
 ```
 
-The GitHub Actions test workflow runs Pint, PHPStan, and PHPUnit across the supported Laravel/PHP matrix with a RabbitMQ service container.
+The GitHub Actions test workflow runs Pint, PHPStan, and PHPUnit across the supported Laravel/PHP matrix with RabbitMQ 3.13 and 4.x service containers. It also includes Composer `prefer-lowest` and `prefer-stable` dependency jobs.
+
+## Upgrading and migrating
+
+- Read [UPGRADE.md](UPGRADE.md) before changing package, Laravel, PHP, or RabbitMQ versions.
+- Read [MIGRATION.md](MIGRATION.md) when moving from another Laravel queue driver or from `vladimir-yuldashev/laravel-queue-rabbitmq`.
+- Read the [comparison page](docs/comparison-vladimir-yuldashev.md) when choosing between RabbitMQ queue packages.
 
 ## Troubleshooting
 
@@ -530,6 +546,14 @@ RABBITMQ_WORKER=horizon
 ```
 
 Then restart your workers.
+
+## Security
+
+Please report vulnerabilities privately. See [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 

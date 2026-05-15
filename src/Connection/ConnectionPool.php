@@ -28,47 +28,43 @@ class ConnectionPool
 
     private int $lastHealthCheck = 0;
 
+    private bool $lazy;
+
     public function __construct(ConnectionFactory $factory, array $config)
     {
         $this->factory = $factory;
         $this->availableConnections = new SplQueue;
 
         $poolConfig = $config['pool'] ?? [];
+        $hostConfig = $this->firstHostConfig($config['hosts'] ?? []);
         $this->maxConnections = $poolConfig['max_connections'] ?? 10;
         $this->minConnections = $poolConfig['min_connections'] ?? 2;
+        $this->lazy = (bool) ($poolConfig['lazy'] ?? $hostConfig['lazy'] ?? false);
         $this->healthCheckEnabled = $poolConfig['health_check_enabled'] ?? true;
-        $this->healthCheckInterval = $poolConfig['health_check_interval'] ?? 30; // seconds
+        $this->healthCheckInterval = $poolConfig['health_check_interval'] ?? 30;
 
-        // Initialize minimum connections
-        $this->initializePool();
+        if (! $this->lazy) {
+            $this->initializePool();
+        }
     }
 
-    /**
-     * Get a connection from the pool
-     *
-     * @throws ConnectionException
-     */
     public function getConnection(): AMQPConnection
     {
         $this->performHealthCheckIfNeeded();
 
-        // Try to get an available connection
         if (! $this->availableConnections->isEmpty()) {
             $connection = $this->availableConnections->dequeue();
 
-            // Verify connection is still alive
             if ($this->factory->isConnectionAlive($connection)) {
                 $connectionId = spl_object_id($connection);
                 $this->activeConnections[$connectionId] = $connection;
 
                 return $connection;
             }
-            // Connection is dead, remove it and create a new one
-            $this->currentConnections--;
 
+            $this->currentConnections--;
         }
 
-        // Create new connection if under limit
         if ($this->currentConnections < $this->maxConnections) {
             $connection = $this->createNewConnection();
             $connectionId = spl_object_id($connection);
@@ -77,17 +73,9 @@ class ConnectionPool
             return $connection;
         }
 
-        throw new ConnectionException(
-            sprintf(
-                'Connection pool exhausted. Maximum connections (%d) reached.',
-                $this->maxConnections
-            )
-        );
+        throw new ConnectionException(sprintf('Connection pool exhausted. Maximum connections (%d) reached.', $this->maxConnections));
     }
 
-    /**
-     * Return a connection to the pool
-     */
     public function releaseConnection(AMQPConnection $connection): void
     {
         $connectionId = spl_object_id($connection);
@@ -98,28 +86,21 @@ class ConnectionPool
 
         unset($this->activeConnections[$connectionId]);
 
-        // Check if connection is still alive before returning to pool
         if ($this->factory->isConnectionAlive($connection)) {
             $this->availableConnections->enqueue($connection);
         } else {
-            // Connection is dead, don't return to pool
             $this->currentConnections--;
         }
     }
 
-    /**
-     * Close a specific connection and remove from pool
-     */
     public function closeConnection(AMQPConnection $connection): void
     {
         $connectionId = spl_object_id($connection);
 
-        // Remove from active connections
         if (isset($this->activeConnections[$connectionId])) {
             unset($this->activeConnections[$connectionId]);
         }
 
-        // Remove from available connections if present
         $tempQueue = new SplQueue;
         while (! $this->availableConnections->isEmpty()) {
             $conn = $this->availableConnections->dequeue();
@@ -133,19 +114,13 @@ class ConnectionPool
         $this->currentConnections--;
     }
 
-    /**
-     * Close all connections and clean up the pool
-     */
     public function closeAll(): void
     {
-
-        // Close active connections
         foreach ($this->activeConnections as $connection) {
             $this->factory->closeConnection($connection);
         }
         $this->activeConnections = [];
 
-        // Close available connections
         while (! $this->availableConnections->isEmpty()) {
             $connection = $this->availableConnections->dequeue();
             $this->factory->closeConnection($connection);
@@ -154,9 +129,6 @@ class ConnectionPool
         $this->currentConnections = 0;
     }
 
-    /**
-     * Get pool statistics
-     */
     public function getStats(): array
     {
         return [
@@ -165,14 +137,12 @@ class ConnectionPool
             'current_connections' => $this->currentConnections,
             'active_connections' => count($this->activeConnections),
             'available_connections' => $this->availableConnections->count(),
+            'lazy' => $this->lazy,
             'health_check_enabled' => $this->healthCheckEnabled,
             'last_health_check' => $this->lastHealthCheck,
         ];
     }
 
-    /**
-     * Initialize the pool with minimum connections
-     */
     private function initializePool(): void
     {
         for ($i = 0; $i < $this->minConnections; $i++) {
@@ -185,9 +155,6 @@ class ConnectionPool
         }
     }
 
-    /**
-     * Create a new connection and increment counter
-     */
     private function createNewConnection(): AMQPConnection
     {
         $connection = $this->factory->createConnection();
@@ -196,9 +163,6 @@ class ConnectionPool
         return $connection;
     }
 
-    /**
-     * Perform health check on available connections if needed
-     */
     private function performHealthCheckIfNeeded(): void
     {
         if (! $this->healthCheckEnabled) {
@@ -214,13 +178,9 @@ class ConnectionPool
         $this->performHealthCheck();
     }
 
-    /**
-     * Check health of all available connections
-     */
     private function performHealthCheck(): void
     {
         $healthyConnections = new SplQueue;
-        $removedCount = 0;
 
         while (! $this->availableConnections->isEmpty()) {
             $connection = $this->availableConnections->dequeue();
@@ -230,13 +190,22 @@ class ConnectionPool
             } else {
                 $this->factory->closeConnection($connection);
                 $this->currentConnections--;
-                $removedCount++;
             }
         }
 
         $this->availableConnections = $healthyConnections;
+    }
 
-        if ($removedCount > 0) {
+    private function firstHostConfig(array $hosts): array
+    {
+        if ($hosts === []) {
+            return [];
         }
+
+        if (array_is_list($hosts) && isset($hosts[0]) && is_array($hosts[0])) {
+            return $hosts[0];
+        }
+
+        return $hosts;
     }
 }
