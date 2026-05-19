@@ -1,16 +1,19 @@
 {
     "name": "iamfarhad/laravel-rabbitmq",
-    "description": "A robust RabbitMQ driver for Laravel Queue with advanced message queuing, reliable delivery, and high-performance async processing capabilities",
+    "description": "Native ext-amqp RabbitMQ queue driver for Laravel production workloads with connection pooling, publisher confirms, Horizon support, Octane support, quorum queues, and high-performance workers",
     "type": "library",
     "license": "MIT",
     "homepage": "https://github.com/iamfarhad/laravel-rabbitmq",
     "keywords": [
         "laravel",
         "laravel-queue",
+        "queue-driver",
         "rabbitmq",
         "amqp",
+        "ext-amqp",
+        "php-amqp",
+        "rabbitmq-c",
         "message-queue",
-        "queue-driver",
         "async-processing",
         "message-broker",
         "distributed-systems",
@@ -24,7 +27,14 @@
         "laravel-package",
         "queue-management",
         "background-jobs",
-        "task-queue"
+        "laravel-horizon",
+        "horizon",
+        "laravel-octane",
+        "octane",
+        "publisher-confirms",
+        "quorum-queues",
+        "dead-letter-exchange",
+        "delayed-messages"
     ],
     "authors": [
         {
