@@ -64,7 +64,6 @@ class Consumer extends Worker
      *
      * @param  string  $connectionName
      * @param  string  $queue
-     * @return int
      *
      * @throws Throwable
      */
