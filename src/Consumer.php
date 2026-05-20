@@ -74,7 +74,7 @@ class Consumer extends Worker
         }
 
         $timestampOfLastQueueRestart = $this->getTimestampOfLastQueueRestart();
-        $startTime = (hrtime(true) / 1e9);
+        $startTime = hrtime(true) / 1e9;
         $jobsProcessed = 0;
 
         $connection = $this->manager->connection($connectionName);
