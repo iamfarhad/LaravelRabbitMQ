@@ -16,6 +16,8 @@ class PublisherConfirms
 
     private int $nextPublishSeqNo = 1;
 
+    private ?string $lastNack = null;
+
     public function __construct(
         private readonly AMQPChannel $channel,
         private readonly int $timeout = 5
@@ -31,6 +33,10 @@ class PublisherConfirms
         }
 
         try {
+            $this->channel->setConfirmCallback(
+                fn (int $deliveryTag, bool $multiple = false): bool => $this->handleAck($deliveryTag, $multiple),
+                fn (int $deliveryTag, bool $multiple = false): bool => $this->handleNack($deliveryTag, $multiple)
+            );
             $this->channel->confirmSelect();
             $this->confirmMode = true;
         } catch (AMQPChannelException $e) {
@@ -46,6 +52,7 @@ class PublisherConfirms
         $this->confirmMode = false;
         $this->pendingConfirms = [];
         $this->nextPublishSeqNo = 1;
+        $this->lastNack = null;
     }
 
     /**
@@ -58,6 +65,10 @@ class PublisherConfirms
         }
         try {
             $this->channel->waitForConfirm($this->timeout);
+
+            if ($this->lastNack !== null) {
+                throw new Exception('Message was nacked by broker: '.$this->lastNack);
+            }
 
             return true;
         } catch (AMQPChannelException $e) {
@@ -129,5 +140,39 @@ class PublisherConfirms
     public function clearPending(): void
     {
         $this->pendingConfirms = [];
+    }
+
+    private function handleAck(int $deliveryTag, bool $multiple): bool
+    {
+        $this->confirmDelivery($deliveryTag, $multiple);
+
+        return true;
+    }
+
+    private function handleNack(int $deliveryTag, bool $multiple): bool
+    {
+        $correlationIds = $this->confirmDelivery($deliveryTag, $multiple);
+        $this->lastNack = implode(', ', array_filter($correlationIds)) ?: (string) $deliveryTag;
+
+        return true;
+    }
+
+    private function confirmDelivery(int $deliveryTag, bool $multiple): array
+    {
+        if (! $multiple) {
+            return [$this->confirmMessage($deliveryTag)];
+        }
+
+        $confirmed = [];
+
+        foreach (array_keys($this->pendingConfirms) as $seqNo) {
+            if ($seqNo > $deliveryTag) {
+                continue;
+            }
+
+            $confirmed[] = $this->confirmMessage($seqNo);
+        }
+
+        return $confirmed;
     }
 }
