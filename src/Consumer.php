@@ -68,7 +68,7 @@ class Consumer extends Worker
      *
      * @throws Throwable
      */
-    public function daemon($connectionName, $queue, WorkerOptions $options)
+    public function daemon($connectionName, $queue, WorkerOptions $options): int
     {
         if ($this->supportsAsyncSignals()) {
             $this->listenForSignals();
@@ -266,7 +266,7 @@ class Consumer extends Worker
         return ! (($this->isDownForMaintenance)() && ! $options->force) && ! $this->paused;
     }
 
-    public function stop($status = 0, $options = null, $reason = null)
+    public function stop($status = 0, $options = null, $reason = null): int
     {
         return parent::stop($status, $options, $reason);
     }
