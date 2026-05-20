@@ -8,6 +8,7 @@ use iamfarhad\LaravelRabbitMQ\Consumer;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Illuminate\Queue\Worker;
 use ReflectionMethod;
+use ReflectionProperty;
 
 class ConsumerCompatibilityTest extends UnitTestCase
 {
@@ -21,10 +22,18 @@ class ConsumerCompatibilityTest extends UnitTestCase
         $this->assertCompatibleReturnType(Worker::class, Consumer::class, 'stop');
     }
 
-    public function testCurrentJobPropertyRemainsCompatibleWithLaravelWorker(): void
+    public function testCurrentJobPropertyRemainsCompatibleWithLaravelWorkerWhenDeclared(): void
     {
-        $parentProperty = new \ReflectionProperty(Worker::class, 'currentJob');
-        $consumerProperty = new \ReflectionProperty(Consumer::class, 'currentJob');
+        $this->assertTrue(property_exists(Consumer::class, 'currentJob'));
+
+        if (! property_exists(Worker::class, 'currentJob')) {
+            $this->assertTrue(true);
+
+            return;
+        }
+
+        $parentProperty = new ReflectionProperty(Worker::class, 'currentJob');
+        $consumerProperty = new ReflectionProperty(Consumer::class, 'currentJob');
 
         $this->assertSame($parentProperty->hasType(), $consumerProperty->hasType());
 
