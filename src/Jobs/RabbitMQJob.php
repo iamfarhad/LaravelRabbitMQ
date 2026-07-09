@@ -116,11 +116,13 @@ class RabbitMQJob extends Job implements JobContract
 
     public function attempts(): int
     {
-        if (! $rabbitMQMessageHeaders = $this->getRabbitMQMessageHeaders()) {
-            return 1;
+        if ($rabbitMQMessageHeaders = $this->getRabbitMQMessageHeaders()) {
+            $laravelAttempts = (int) Arr::get($rabbitMQMessageHeaders, 'laravel.attempts', 0);
+
+            return $laravelAttempts + 1;
         }
 
-        $laravelAttempts = (int) Arr::get($rabbitMQMessageHeaders, 'laravel.attempts', 0);
+        $laravelAttempts = (int) Arr::get($this->decoded, 'laravel.attempts', 0);
 
         return $laravelAttempts + 1;
     }
@@ -144,7 +146,10 @@ class RabbitMQJob extends Job implements JobContract
     public function release($delay = 0): void
     {
         parent::release();
-        $this->rabbitQueue->laterRaw($delay, $this->amqpEnvelope->getBody(), $this->queue, $this->attempts());
+
+        $attempts = $this->attempts();
+
+        $this->rabbitQueue->laterRaw($delay, $this->payloadForRelease($attempts), $this->queue, $attempts);
         $this->rabbitQueue->ack($this);
     }
 
@@ -167,5 +172,24 @@ class RabbitMQJob extends Job implements JobContract
         }
 
         return $headers;
+    }
+
+    private function payloadForRelease(int $attempts): string
+    {
+        try {
+            $payload = json_decode($this->getRawBody(), true, 512, JSON_THROW_ON_ERROR);
+
+            if (! is_array($payload)) {
+                return $this->getRawBody();
+            }
+
+            Arr::set($payload, 'laravel.attempts', $attempts);
+
+            $encodedPayload = json_encode($payload, JSON_THROW_ON_ERROR);
+
+            return is_string($encodedPayload) ? $encodedPayload : $this->getRawBody();
+        } catch (JsonException) {
+            return $this->getRawBody();
+        }
     }
 }
