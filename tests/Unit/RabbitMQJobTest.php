@@ -89,11 +89,11 @@ class RabbitMQJobTest extends UnitTestCase
         ], JSON_THROW_ON_ERROR);
 
         $rabbitQueue = Mockery::mock(RabbitQueue::class);
-        $envelope = Mockery::mock(\AMQPEnvelope::class);
+        $envelope = Mockery::mock(AMQPEnvelope::class);
         $envelope->shouldReceive('getBody')->andReturn($payload);
         $envelope->shouldReceive('getHeaders')->andReturn([]);
 
-        $job = new RabbitMQJob(new Container(), $rabbitQueue, $envelope, 'rabbitmq', 'default');
+        $job = new RabbitMQJob(new Container, $rabbitQueue, $envelope, 'rabbitmq', 'default');
 
         $this->assertSame(3, $job->attempts());
     }
@@ -123,11 +123,11 @@ class RabbitMQJobTest extends UnitTestCase
             });
         $rabbitQueue->shouldReceive('ack')->once();
 
-        $envelope = Mockery::mock(\AMQPEnvelope::class);
+        $envelope = Mockery::mock(AMQPEnvelope::class);
         $envelope->shouldReceive('getBody')->andReturn($payload);
         $envelope->shouldReceive('getHeaders')->andReturn([]);
 
-        $job = new RabbitMQJob(new Container(), $rabbitQueue, $envelope, 'rabbitmq', 'default');
+        $job = new RabbitMQJob(new Container, $rabbitQueue, $envelope, 'rabbitmq', 'default');
 
         $job->release(0);
     }
