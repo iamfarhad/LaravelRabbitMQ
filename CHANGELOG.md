@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-07-15
+
+### 🐛 Fixed
+
+- **Infinite job retries** ([#21](https://github.com/iamfarhad/LaravelRabbitMQ/issues/21)): `RabbitMQJob::attempts()` always returned `1` because the attempt counter was never preserved across republishing, so jobs with `$tries > 1` never reached their retry limit and looped forever instead of failing. The attempt count is now persisted in the job payload on `release()` and read back on redelivery, so `attempts()` increments correctly and `maxTries` is enforced as expected.
+
 ## [1.1.0] - 2025-01-27
 
 ### 🚀 Major Advanced Features Added
