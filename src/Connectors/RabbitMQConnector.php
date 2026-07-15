@@ -23,7 +23,10 @@ class RabbitMQConnector implements ConnectorInterface
 
     private const OCTANE_REQUEST_TERMINATED = 'Laravel\\Octane\\Events\\RequestTerminated';
 
-    private static ?PoolManager $poolManager = null;
+    /**
+     * @var array<string, PoolManager>
+     */
+    private static array $poolManagers = [];
 
     public function __construct(private Dispatcher $dispatcher) {}
 
@@ -32,30 +35,45 @@ class RabbitMQConnector implements ConnectorInterface
      */
     public function connect(array $config = []): Queue
     {
-        $rabbitConfig = config('queue.connections.rabbitmq', $config);
+        $poolKey = self::poolCacheKey($config);
 
-        if (self::$poolManager === null) {
-            self::$poolManager = new PoolManager($rabbitConfig);
+        if (! isset(self::$poolManagers[$poolKey])) {
+            self::$poolManagers[$poolKey] = new PoolManager($config);
         }
 
-        $defaultQueue = $rabbitConfig['queue'] ?? 'default';
-        $options = $rabbitConfig['options'] ?? [];
-        $dispatchAfterCommit = (bool) ($rabbitConfig['after_commit'] ?? false);
-        $connectionName = (string) ($rabbitConfig['name'] ?? 'rabbitmq');
+        $defaultQueue = $config['queue'] ?? 'default';
+        $options = $config['options'] ?? [];
+        $dispatchAfterCommit = (bool) ($config['after_commit'] ?? false);
+        $connectionName = (string) ($config['name'] ?? 'rabbitmq');
 
         $rabbitQueue = $this->makeQueue(
-            self::$poolManager,
+            self::$poolManagers[$poolKey],
             $defaultQueue,
             $options,
             $dispatchAfterCommit,
             $connectionName,
-            $rabbitConfig
+            $config
         );
 
         $this->registerCleanupListeners();
         $this->registerHorizonListeners($rabbitQueue);
 
         return $rabbitQueue;
+    }
+
+    /**
+     * Build a stable cache key from the connection-affecting portion of the config,
+     * so distinct named connections (different hosts/pool settings) never share a
+     * pool, while identical configs can still reuse one.
+     */
+    private static function poolCacheKey(array $config): string
+    {
+        return md5(serialize([
+            $config['hosts'] ?? [],
+            $config['pool'] ?? [],
+            $config['transport'] ?? null,
+            $config['protocol'] ?? null,
+        ]));
     }
 
     private function makeQueue(
@@ -118,17 +136,29 @@ class RabbitMQConnector implements ConnectorInterface
             && (bool) config('queue.connections.rabbitmq.octane.reset_on_request', false);
     }
 
-    public static function getPoolManager(): ?PoolManager
+    public static function getPoolManager(?string $connectionName = null): ?PoolManager
     {
-        return self::$poolManager;
+        if (self::$poolManagers === []) {
+            return null;
+        }
+
+        if ($connectionName === null && count(self::$poolManagers) === 1) {
+            return reset(self::$poolManagers);
+        }
+
+        $connectionName ??= (string) config('queue.default', 'rabbitmq');
+        $config = (array) config("queue.connections.{$connectionName}", []);
+
+        return self::$poolManagers[self::poolCacheKey($config)]
+            ?? (count(self::$poolManagers) === 1 ? reset(self::$poolManagers) : null);
     }
 
     public static function resetPoolManager(): void
     {
-        if (self::$poolManager) {
-            self::$poolManager->closeAll();
+        foreach (self::$poolManagers as $poolManager) {
+            $poolManager->closeAll();
         }
 
-        self::$poolManager = null;
+        self::$poolManagers = [];
     }
 }

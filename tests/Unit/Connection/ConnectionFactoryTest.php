@@ -52,7 +52,7 @@ class ConnectionFactoryTest extends UnitTestCase
         $method = $reflection->getMethod('buildConnectionConfig');
         $method->setAccessible(true);
 
-        $result = $method->invoke($factory);
+        $result = $method->invoke($factory, $this->config['hosts']);
 
         $this->assertEquals('localhost', $result['host']);
         $this->assertEquals(5672, $result['port']);

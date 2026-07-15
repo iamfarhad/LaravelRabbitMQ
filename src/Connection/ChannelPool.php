@@ -6,6 +6,7 @@ namespace iamfarhad\LaravelRabbitMQ\Connection;
 
 use AMQPChannel;
 use AMQPChannelException;
+use AMQPConnection;
 use iamfarhad\LaravelRabbitMQ\Exceptions\QueueException;
 use SplQueue;
 
@@ -18,6 +19,10 @@ class ChannelPool
     private array $activeChannels = [];
 
     private array $channelConnections = []; // Track which connection each channel belongs to
+
+    private array $connectionChannelCounts = []; // Track how many channels are bound to each connection
+
+    private ?AMQPConnection $currentConnection = null; // Connection new channels are multiplexed onto
 
     private int $maxChannelsPerConnection;
 
@@ -117,9 +122,7 @@ class ChannelPool
         $this->safeCloseChannel($channel);
 
         // Clean up tracking
-        if (isset($this->channelConnections[$channelId])) {
-            unset($this->channelConnections[$channelId]);
-        }
+        $this->unbindChannelFromConnection($channelId);
 
         $this->currentChannels--;
     }
@@ -143,6 +146,8 @@ class ChannelPool
         }
 
         $this->channelConnections = [];
+        $this->connectionChannelCounts = [];
+        $this->currentConnection = null;
         $this->currentChannels = 0;
     }
 
@@ -162,19 +167,21 @@ class ChannelPool
     }
 
     /**
-     * Create a new channel
+     * Create a new channel, multiplexing it onto the current connection
+     * until max_channels_per_connection is reached before requesting
+     * another connection from the connection pool.
      *
      * @throws QueueException
      */
     private function createNewChannel(): AMQPChannel
     {
         try {
-            $connection = $this->connectionPool->getConnection();
+            $connection = $this->acquireConnectionForNewChannel();
             $channel = new AMQPChannel($connection);
 
             $channelId = spl_object_id($channel);
             $this->activeChannels[$channelId] = $channel;
-            $this->channelConnections[$channelId] = $connection;
+            $this->bindChannelToConnection($channelId, $connection);
             $this->currentChannels++;
 
             return $channel;
@@ -184,6 +191,69 @@ class ChannelPool
                 $e->getCode(),
                 $e
             );
+        }
+    }
+
+    /**
+     * Reuse the current connection while it has spare channel capacity;
+     * otherwise obtain a fresh one from the connection pool.
+     */
+    private function acquireConnectionForNewChannel(): AMQPConnection
+    {
+        if ($this->currentConnection !== null) {
+            $connectionId = spl_object_id($this->currentConnection);
+            $count = $this->connectionChannelCounts[$connectionId] ?? 0;
+
+            if ($count < $this->maxChannelsPerConnection) {
+                return $this->currentConnection;
+            }
+        }
+
+        $connection = $this->connectionPool->getConnection();
+        $this->currentConnection = $connection;
+
+        return $connection;
+    }
+
+    /**
+     * Track that a channel is bound to a connection, so the connection is
+     * only released back to the connection pool once every channel sharing
+     * it has been removed.
+     */
+    private function bindChannelToConnection(int $channelId, AMQPConnection $connection): void
+    {
+        $connectionId = spl_object_id($connection);
+        $this->channelConnections[$channelId] = $connection;
+        $this->connectionChannelCounts[$connectionId] = ($this->connectionChannelCounts[$connectionId] ?? 0) + 1;
+    }
+
+    /**
+     * Undo bindChannelToConnection(): only releases the connection back to
+     * the connection pool once no channel is left referencing it.
+     */
+    private function unbindChannelFromConnection(int $channelId): void
+    {
+        if (! isset($this->channelConnections[$channelId])) {
+            return;
+        }
+
+        $connection = $this->channelConnections[$channelId];
+        $connectionId = spl_object_id($connection);
+        unset($this->channelConnections[$channelId]);
+
+        $remaining = max(0, ($this->connectionChannelCounts[$connectionId] ?? 1) - 1);
+
+        if ($remaining > 0) {
+            $this->connectionChannelCounts[$connectionId] = $remaining;
+
+            return;
+        }
+
+        unset($this->connectionChannelCounts[$connectionId]);
+        $this->connectionPool->releaseConnection($connection);
+
+        if ($this->currentConnection !== null && spl_object_id($this->currentConnection) === $connectionId) {
+            $this->currentConnection = null;
         }
     }
 
@@ -222,12 +292,9 @@ class ChannelPool
     {
         $channelId = spl_object_id($channel);
 
-        // Return connection to pool if we have a reference
-        if (isset($this->channelConnections[$channelId])) {
-            $connection = $this->channelConnections[$channelId];
-            $this->connectionPool->releaseConnection($connection);
-            unset($this->channelConnections[$channelId]);
-        }
+        // Only releases the connection back to the pool once no other
+        // channel sharing it remains (see unbindChannelFromConnection()).
+        $this->unbindChannelFromConnection($channelId);
 
         $this->currentChannels--;
     }
