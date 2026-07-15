@@ -25,14 +25,19 @@ class ConnectionFactory
 
     public function createConnection(): AMQPConnection
     {
-        $connectionConfig = $this->buildConnectionConfig();
+        // Resolved once per call (shuffled when multiple hosts are configured)
+        // and cycled through by attempt, so a retry targets a different host
+        // instead of hammering the one that just failed.
+        $hostConfigs = $this->resolveHostConfigsForFailover();
         $retryDelay = $this->retryDelay;
         $attempt = 0;
         $lastException = null;
 
         while ($attempt < $this->maxRetries) {
+            $hostConfig = $hostConfigs[$attempt % count($hostConfigs)];
+
             try {
-                $connection = new AMQPConnection($connectionConfig);
+                $connection = new AMQPConnection($this->buildConnectionConfig($hostConfig));
                 $connection->connect();
 
                 return $connection;
@@ -56,12 +61,11 @@ class ConnectionFactory
 
     public function buildConnectionConfigForTesting(): array
     {
-        return $this->buildConnectionConfig();
+        return $this->buildConnectionConfig($this->resolveHostConfigsForFailover()[0]);
     }
 
-    private function buildConnectionConfig(): array
+    private function buildConnectionConfig(array $hostConfig): array
     {
-        $hostConfig = $this->selectHostConfig();
         $options = $this->config['options'] ?? [];
         $transport = $this->resolveTransport($hostConfig);
 
@@ -113,27 +117,36 @@ class ConnectionFactory
         };
     }
 
-    private function selectHostConfig(): array
+    /**
+     * Resolve every candidate host config for this connection attempt,
+     * shuffled so concurrent connects don't all pile onto the same host
+     * first. createConnection() cycles through the returned list by
+     * attempt number so retries fail over to the next host instead of
+     * repeatedly targeting the one that just failed.
+     *
+     * @return list<array>
+     */
+    private function resolveHostConfigsForFailover(): array
     {
         $hosts = $this->config['hosts'] ?? [];
 
         if ($hosts === []) {
-            return [];
+            return [[]];
         }
 
-        if ($this->isListOfHosts($hosts)) {
-            $availableHosts = array_values(array_filter($hosts, 'is_array'));
-
-            if ($availableHosts === []) {
-                return [];
-            }
-
-            shuffle($availableHosts);
-
-            return $availableHosts[0];
+        if (! $this->isListOfHosts($hosts)) {
+            return [$hosts];
         }
 
-        return $hosts;
+        $availableHosts = array_values(array_filter($hosts, 'is_array'));
+
+        if ($availableHosts === []) {
+            return [[]];
+        }
+
+        shuffle($availableHosts);
+
+        return $availableHosts;
     }
 
     private function isListOfHosts(array $hosts): bool

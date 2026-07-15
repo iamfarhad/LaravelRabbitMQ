@@ -14,12 +14,12 @@ class PoolStatsCommandTest extends TestCase
 {
     protected function tearDown(): void
     {
-        // Reset the static pool manager after each test
+        // Reset the static pool managers after each test
         try {
             $reflection = new \ReflectionClass(RabbitMQConnector::class);
-            $property = $reflection->getProperty('poolManager');
+            $property = $reflection->getProperty('poolManagers');
             $property->setAccessible(true);
-            $property->setValue(null, null);
+            $property->setValue(null, []);
         } catch (\Exception $e) {
             // Ignore cleanup errors
         }
@@ -29,11 +29,11 @@ class PoolStatsCommandTest extends TestCase
 
     public function testShowsNoPoolManagerMessageWhenNoneActive(): void
     {
-        // Use reflection to set the static poolManager to null
+        // Use reflection to clear the static poolManagers map
         $reflection = new \ReflectionClass(RabbitMQConnector::class);
-        $property = $reflection->getProperty('poolManager');
+        $property = $reflection->getProperty('poolManagers');
         $property->setAccessible(true);
-        $property->setValue(null, null);
+        $property->setValue(null, []);
 
         $this->artisan('rabbitmq:pool-stats')
             ->expectsOutput('No active RabbitMQ pool manager found. Make sure a RabbitMQ connection is active.')
@@ -81,11 +81,11 @@ class PoolStatsCommandTest extends TestCase
             ->once()
             ->andReturn(true);
 
-        // Use reflection to set the static poolManager
+        // Use reflection to set the static poolManagers map
         $reflection = new \ReflectionClass(RabbitMQConnector::class);
-        $property = $reflection->getProperty('poolManager');
+        $property = $reflection->getProperty('poolManagers');
         $property->setAccessible(true);
-        $property->setValue(null, $mockPoolManager);
+        $property->setValue(null, ['test' => $mockPoolManager]);
 
         $this->artisan('rabbitmq:pool-stats')
             ->expectsOutput('📡 Connection Pool')
@@ -140,11 +140,11 @@ class PoolStatsCommandTest extends TestCase
             ->once()
             ->andReturn(false);
 
-        // Use reflection to set the static poolManager
+        // Use reflection to set the static poolManagers map
         $reflection = new \ReflectionClass(RabbitMQConnector::class);
-        $property = $reflection->getProperty('poolManager');
+        $property = $reflection->getProperty('poolManagers');
         $property->setAccessible(true);
-        $property->setValue(null, $mockPoolManager);
+        $property->setValue(null, ['test' => $mockPoolManager]);
 
         $this->artisan('rabbitmq:pool-stats')
             ->expectsOutput('🟡 Pool Status: Warning - Check connection count')
@@ -172,11 +172,11 @@ class PoolStatsCommandTest extends TestCase
             ->once()
             ->andReturn($mockStats);
 
-        // Use reflection to set the static poolManager
+        // Use reflection to set the static poolManagers map
         $reflection = new \ReflectionClass(RabbitMQConnector::class);
-        $property = $reflection->getProperty('poolManager');
+        $property = $reflection->getProperty('poolManagers');
         $property->setAccessible(true);
-        $property->setValue(null, $mockPoolManager);
+        $property->setValue(null, ['test' => $mockPoolManager]);
 
         $expectedJson = json_encode($mockStats, JSON_PRETTY_PRINT);
 

@@ -92,9 +92,14 @@ class ConnectionConfigTest extends UnitTestCase
     private function invokeBuildConnectionConfig(ConnectionFactory $factory): array
     {
         $reflection = new ReflectionClass($factory);
+
+        $hostMethod = $reflection->getMethod('resolveHostConfigsForFailover');
+        $hostMethod->setAccessible(true);
+        $hostConfig = $hostMethod->invoke($factory)[0];
+
         $method = $reflection->getMethod('buildConnectionConfig');
         $method->setAccessible(true);
 
-        return $method->invoke($factory);
+        return $method->invoke($factory, $hostConfig);
     }
 }

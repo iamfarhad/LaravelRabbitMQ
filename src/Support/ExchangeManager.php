@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace iamfarhad\LaravelRabbitMQ\Support;
 
 use AMQPChannel;
+use AMQPChannelException;
 use AMQPExchange;
 use AMQPQueue;
+use AMQPQueueException;
 
 class ExchangeManager
 {
+    private const QUEUE_ALREADY_EXISTS_CODE = 406;
+
     public const TYPE_DIRECT = AMQP_EX_TYPE_DIRECT;
 
     public const TYPE_FANOUT = AMQP_EX_TYPE_FANOUT;
@@ -17,6 +21,13 @@ class ExchangeManager
     public const TYPE_TOPIC = AMQP_EX_TYPE_TOPIC;
 
     public const TYPE_HEADERS = AMQP_EX_TYPE_HEADERS;
+
+    /**
+     * Exchange type registered by the RabbitMQ delayed-message plugin. The
+     * underlying routing behaviour (direct/topic/fanout/headers) is passed
+     * via the x-delayed-type argument, not the exchange type itself.
+     */
+    public const TYPE_DELAYED_MESSAGE = 'x-delayed-message';
 
     public function __construct(
         private readonly AMQPChannel $channel
@@ -119,7 +130,12 @@ class ExchangeManager
     }
 
     /**
-     * Setup a dead letter exchange for a queue
+     * Setup a dead letter exchange for a queue.
+     *
+     * Call this before the main queue is first declared: RabbitMQ queue
+     * arguments are immutable, so if $queueName already exists without
+     * these dead-letter arguments the declare here fails with 406 and is
+     * ignored, leaving the existing queue not wired to the DLX.
      */
     public function setupDeadLetterExchange(
         string $queueName,
@@ -143,10 +159,19 @@ class ExchangeManager
         // Update main queue with DLX arguments
         $queue = new AMQPQueue($this->channel);
         $queue->setName($queueName);
+        $queue->setFlags(AMQP_DURABLE);
         $queue->setArguments([
             'x-dead-letter-exchange' => $dlxName,
             'x-dead-letter-routing-key' => $dlxRoutingKey ?? $queueName,
         ]);
+
+        try {
+            $queue->declareQueue();
+        } catch (AMQPChannelException|AMQPQueueException $exception) {
+            if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
+                throw $exception;
+            }
+        }
     }
 
     /**
@@ -158,7 +183,7 @@ class ExchangeManager
     ): AMQPExchange {
         return $this->declareExchange(
             $exchangeName,
-            $type,
+            self::TYPE_DELAYED_MESSAGE,
             true,
             false,
             ['x-delayed-type' => $type]

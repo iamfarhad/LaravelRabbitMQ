@@ -34,9 +34,9 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     private const QUEUE_ALREADY_EXISTS_CODE = 406;
 
-    private const DEFAULT_RETRY_DELAY = 1000;
+    private const RECONNECT_MAX_ATTEMPTS = 5;
 
-    private const MAX_RETRY_ATTEMPTS = 3;
+    private const RECONNECT_RETRY_DELAY_MS = 500;
 
     private ?AMQPChannel $amqpChannel = null;
 
@@ -83,6 +83,14 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $this->poolManager->releaseChannel($this->amqpChannel);
             $this->amqpChannel = null;
         }
+
+        // These helpers hold the channel that was active when they were built;
+        // once it's replaced they must be rebuilt against the new one instead
+        // of silently operating on a dead channel.
+        $this->exchangeManager = null;
+        $this->publisherConfirms = null;
+        $this->transactionManager = null;
+        $this->rpcClient = null;
     }
 
     /**
@@ -297,28 +305,42 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         bool $autoDelete = false,
         array $arguments = []
     ): void {
-        try {
-            $amqpQueue = new AMQPQueue($this->getChannel());
-            $amqpQueue->setName($name);
-            $amqpQueue->setFlags($durable ? AMQP_DURABLE : AMQP_NOPARAM);
+        $mergedArguments = array_merge($this->getQueueArguments($name), $arguments);
+        $attempt = 0;
 
-            if ($autoDelete) {
-                $amqpQueue->setFlags($amqpQueue->getFlags() | AMQP_AUTODELETE);
-            }
+        while (true) {
+            try {
+                $amqpQueue = new AMQPQueue($this->getChannel());
+                $amqpQueue->setName($name);
+                $amqpQueue->setFlags($durable ? AMQP_DURABLE : AMQP_NOPARAM);
 
-            $arguments = array_merge($this->getQueueArguments($name), $arguments);
-            if ($arguments !== []) {
-                $amqpQueue->setArguments($arguments);
-            }
+                if ($autoDelete) {
+                    $amqpQueue->setFlags($amqpQueue->getFlags() | AMQP_AUTODELETE);
+                }
 
-            $amqpQueue->declareQueue();
-        } catch (AMQPChannelException|AMQPQueueException $exception) {
-            if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
-                throw $exception;
+                if ($mergedArguments !== []) {
+                    $amqpQueue->setArguments($mergedArguments);
+                }
+
+                $amqpQueue->declareQueue();
+
+                return;
+            } catch (AMQPChannelException|AMQPQueueException $exception) {
+                if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
+                    throw $exception;
+                }
+
+                return;
+            } catch (AMQPConnectionException $exception) {
+                $this->releaseChannel();
+                $attempt++;
+
+                if ($attempt >= self::RECONNECT_MAX_ATTEMPTS) {
+                    throw $exception;
+                }
+
+                usleep(self::RECONNECT_RETRY_DELAY_MS * 1000 * $attempt);
             }
-        } catch (AMQPConnectionException) {
-            $this->releaseChannel();
-            $this->declareQueue($name, $durable, $autoDelete, $arguments);
         }
     }
 
@@ -369,6 +391,15 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         return $job;
     }
 
+    /**
+     * Delivery tags are only meaningful on the channel that delivered the
+     * message, so a failed ack/reject can never be retried on a replacement
+     * channel: the tag either won't exist there (broker error) or, worse,
+     * could collide with an unrelated later delivery on that new channel.
+     * On failure we just release the dead channel so the pool doesn't
+     * hand it out again; the broker will requeue the message once it
+     * notices the channel is gone.
+     */
     public function reject(RabbitMQJob $rabbitMQJob, bool $requeue = false): void
     {
         $envelope = $rabbitMQJob->getRabbitMQMessage();
@@ -384,13 +415,13 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
         } catch (AMQPChannelException|AMQPConnectionException) {
             $this->releaseChannel();
-            $amqpQueue = new AMQPQueue($this->getChannel());
-            $amqpQueue->setName($rabbitMQJob->getQueue());
-            $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
         }
     }
 
-    public function ack(RabbitMQJob $rabbitMQJob, int $maxRetries = self::MAX_RETRY_ATTEMPTS, int $retryDelay = self::DEFAULT_RETRY_DELAY): void
+    /**
+     * @see reject() for why this does not retry on a replacement channel.
+     */
+    public function ack(RabbitMQJob $rabbitMQJob): void
     {
         $envelope = $rabbitMQJob->getRabbitMQMessage();
         $deliveryTag = $envelope->getDeliveryTag();
@@ -399,24 +430,12 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return;
         }
 
-        $attempts = 0;
-
-        while ($attempts < $maxRetries) {
-            try {
-                $amqpQueue = new AMQPQueue($this->getChannel());
-                $amqpQueue->setName($rabbitMQJob->getQueue());
-                $amqpQueue->ack($deliveryTag);
-
-                return;
-            } catch (AMQPChannelException|AMQPConnectionException) {
-                $this->releaseChannel();
-                $attempts++;
-                if ($attempts < $maxRetries) {
-                    usleep($retryDelay * 1000);
-                }
-            } catch (Throwable) {
-                break;
-            }
+        try {
+            $amqpQueue = new AMQPQueue($this->getChannel());
+            $amqpQueue->setName($rabbitMQJob->getQueue());
+            $amqpQueue->ack($deliveryTag);
+        } catch (AMQPChannelException|AMQPConnectionException) {
+            $this->releaseChannel();
         }
     }
 
@@ -432,41 +451,59 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     public function purgeQueue(string $queueName)
     {
-        try {
-            $amqpQueue = new AMQPQueue($this->getChannel());
-            $amqpQueue->setName($queueName);
+        $attempt = 0;
 
-            return $amqpQueue->purge();
-        } catch (AMQPChannelException $exception) {
-            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
-                return null;
+        while (true) {
+            try {
+                $amqpQueue = new AMQPQueue($this->getChannel());
+                $amqpQueue->setName($queueName);
+
+                return $amqpQueue->purge();
+            } catch (AMQPChannelException $exception) {
+                if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
+                    return null;
+                }
+
+                throw $exception;
+            } catch (AMQPConnectionException $exception) {
+                $this->releaseChannel();
+                $attempt++;
+
+                if ($attempt >= self::RECONNECT_MAX_ATTEMPTS) {
+                    throw $exception;
+                }
+
+                usleep(self::RECONNECT_RETRY_DELAY_MS * 1000 * $attempt);
             }
-
-            throw $exception;
-        } catch (AMQPConnectionException) {
-            $this->releaseChannel();
-
-            return $this->purgeQueue($queueName);
         }
     }
 
     public function deleteQueue(string $queueName)
     {
-        try {
-            $amqpQueue = new AMQPQueue($this->getChannel());
-            $amqpQueue->setName($queueName);
+        $attempt = 0;
 
-            return $amqpQueue->delete();
-        } catch (AMQPChannelException $exception) {
-            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
-                return null;
+        while (true) {
+            try {
+                $amqpQueue = new AMQPQueue($this->getChannel());
+                $amqpQueue->setName($queueName);
+
+                return $amqpQueue->delete();
+            } catch (AMQPChannelException $exception) {
+                if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
+                    return null;
+                }
+
+                throw $exception;
+            } catch (AMQPConnectionException $exception) {
+                $this->releaseChannel();
+                $attempt++;
+
+                if ($attempt >= self::RECONNECT_MAX_ATTEMPTS) {
+                    throw $exception;
+                }
+
+                usleep(self::RECONNECT_RETRY_DELAY_MS * 1000 * $attempt);
             }
-
-            throw $exception;
-        } catch (AMQPConnectionException) {
-            $this->releaseChannel();
-
-            return $this->deleteQueue($queueName);
         }
     }
 
@@ -775,6 +812,8 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         $delayedConfig = config('queue.connections.rabbitmq.delayed_message', []);
         $exchangeName = $delayedConfig['exchange'] ?? 'delayed';
 
+        $this->declareDelayedExchange($exchangeName, $this->getExchangeType($delayedConfig['exchange_type'] ?? null));
+
         $correlationId = $this->createMessage($payload);
 
         $attributes = [
@@ -794,5 +833,22 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         );
 
         return $correlationId;
+    }
+
+    /**
+     * Idempotently declare the x-delayed-message exchange the delayed-message
+     * plugin path publishes to. Declaring it with the same type/arguments it
+     * already has is a no-op; only a genuine mismatch (406) is swallowed here,
+     * matching declareQueue()'s already-exists handling.
+     */
+    private function declareDelayedExchange(string $exchangeName, string $exchangeType): void
+    {
+        try {
+            $this->getExchangeManager()->setupDelayedExchange($exchangeName, $exchangeType);
+        } catch (AMQPChannelException $exception) {
+            if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
+                throw $exception;
+            }
+        }
     }
 }

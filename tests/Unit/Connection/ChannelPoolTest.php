@@ -167,6 +167,12 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->andReturn($mockConnection);
 
+        // Closing the only channel on this connection releases it back to
+        // the connection pool (see unbindChannelFromConnection()).
+        $this->mockConnectionPool->shouldReceive('releaseConnection')
+            ->once()
+            ->with($mockConnection);
+
         // Mock AMQPChannel constructor
         $mockChannelClass = Mockery::mock('overload:'.AMQPChannel::class);
         $mockChannelClass->shouldReceive('__construct')
@@ -275,5 +281,37 @@ class ChannelPoolTest extends UnitTestCase
         $channel2 = $pool->getChannel();
 
         $this->assertNotSame($channel1, $channel2);
+    }
+
+    public function testMultiplexesChannelsOntoSameConnectionUpToLimit(): void
+    {
+        $this->config['pool']['max_channels_per_connection'] = 2;
+
+        $mockConnection1 = Mockery::mock(AMQPConnection::class);
+        $mockConnection2 = Mockery::mock(AMQPConnection::class);
+        $mockChannel1 = Mockery::mock(AMQPChannel::class);
+        $mockChannel2 = Mockery::mock(AMQPChannel::class);
+        $mockChannel3 = Mockery::mock(AMQPChannel::class);
+
+        // Only two connections should be requested for three channels: the
+        // first two channels multiplex onto mockConnection1 (limit is 2),
+        // the third exceeds it and needs mockConnection2.
+        $this->mockConnectionPool->shouldReceive('getConnection')
+            ->twice()
+            ->andReturn($mockConnection1, $mockConnection2);
+
+        $mockChannelClass = Mockery::mock('overload:'.AMQPChannel::class);
+        $mockChannelClass->shouldReceive('__construct')
+            ->times(3)
+            ->andReturn($mockChannel1, $mockChannel2, $mockChannel3);
+
+        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+
+        $pool->getChannel();
+        $pool->getChannel();
+        $pool->getChannel();
+
+        $stats = $pool->getStats();
+        $this->assertEquals(3, $stats['current_channels']);
     }
 }

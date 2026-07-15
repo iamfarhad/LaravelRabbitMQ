@@ -86,16 +86,15 @@ abstract class TestCase extends Orchestra
             // Ignore cleanup errors in tests
         }
 
-        // Reset the static pool manager to prevent connection accumulation between tests
+        // Reset the static pool managers to prevent connection accumulation between tests
         try {
             $reflection = new \ReflectionClass(RabbitMQConnector::class);
-            $property = $reflection->getProperty('poolManager');
+            $property = $reflection->getProperty('poolManagers');
             $property->setAccessible(true);
-            $poolManager = $property->getValue(null);
-            if ($poolManager) {
+            foreach ((array) $property->getValue(null) as $poolManager) {
                 $poolManager->closeAll();
             }
-            $property->setValue(null, null);
+            $property->setValue(null, []);
         } catch (\Exception $e) {
             // Ignore cleanup errors
         }
