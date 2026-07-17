@@ -7,6 +7,7 @@ namespace iamfarhad\LaravelRabbitMQ\Connection;
 use AMQPChannel;
 use AMQPChannelException;
 use AMQPConnection;
+use AMQPConnectionException;
 use iamfarhad\LaravelRabbitMQ\Exceptions\QueueException;
 use SplQueue;
 
@@ -54,20 +55,20 @@ class ChannelPool
     {
         $this->performHealthCheckIfNeeded();
 
-        // Try to get an available channel
-        if (! $this->availableChannels->isEmpty()) {
+        // Reuse the first healthy pooled channel, discarding dead ones along
+        // the way. When a connection dies it can orphan many pooled channels
+        // at once, so keep draining instead of giving up after one.
+        while (! $this->availableChannels->isEmpty()) {
             $channel = $this->availableChannels->dequeue();
 
-            // Verify channel is still open
             if ($this->isChannelOpen($channel)) {
                 $channelId = spl_object_id($channel);
                 $this->activeChannels[$channelId] = $channel;
 
                 return $channel;
             }
-            // Channel is closed, remove it and create a new one
-            $this->removeDeadChannel($channel);
 
+            $this->removeDeadChannel($channel);
         }
 
         // Create new channel
@@ -177,7 +178,16 @@ class ChannelPool
     {
         try {
             $connection = $this->acquireConnectionForNewChannel();
-            $channel = new AMQPChannel($connection);
+
+            try {
+                $channel = new AMQPChannel($connection);
+            } catch (AMQPChannelException|AMQPConnectionException $e) {
+                // The connection died between the liveness check and channel
+                // creation; discard it and retry once on a fresh connection.
+                $this->discardConnection($connection);
+                $connection = $this->acquireConnectionForNewChannel();
+                $channel = new AMQPChannel($connection);
+            }
 
             $channelId = spl_object_id($channel);
             $this->activeChannels[$channelId] = $channel;
@@ -185,7 +195,7 @@ class ChannelPool
             $this->currentChannels++;
 
             return $channel;
-        } catch (AMQPChannelException $e) {
+        } catch (AMQPChannelException|AMQPConnectionException $e) {
             throw new QueueException(
                 'Failed to create AMQP channel: '.$e->getMessage(),
                 $e->getCode(),
@@ -195,17 +205,23 @@ class ChannelPool
     }
 
     /**
-     * Reuse the current connection while it has spare channel capacity;
-     * otherwise obtain a fresh one from the connection pool.
+     * Reuse the current connection while it is alive and has spare channel
+     * capacity; otherwise obtain a fresh one from the connection pool. A dead
+     * current connection is dropped so new channels are never multiplexed
+     * onto a connection the broker has already closed.
      */
     private function acquireConnectionForNewChannel(): AMQPConnection
     {
         if ($this->currentConnection !== null) {
-            $connectionId = spl_object_id($this->currentConnection);
-            $count = $this->connectionChannelCounts[$connectionId] ?? 0;
+            if (! $this->isConnectionUsable($this->currentConnection)) {
+                $this->currentConnection = null;
+            } else {
+                $connectionId = spl_object_id($this->currentConnection);
+                $count = $this->connectionChannelCounts[$connectionId] ?? 0;
 
-            if ($count < $this->maxChannelsPerConnection) {
-                return $this->currentConnection;
+                if ($count < $this->maxChannelsPerConnection) {
+                    return $this->currentConnection;
+                }
             }
         }
 
@@ -213,6 +229,29 @@ class ChannelPool
         $this->currentConnection = $connection;
 
         return $connection;
+    }
+
+    private function isConnectionUsable(AMQPConnection $connection): bool
+    {
+        try {
+            return $connection->isConnected();
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Stop multiplexing onto a connection and hand it back to the connection
+     * pool, which detects dead connections on release and drops them.
+     */
+    private function discardConnection(AMQPConnection $connection): void
+    {
+        if ($this->currentConnection !== null
+            && spl_object_id($this->currentConnection) === spl_object_id($connection)) {
+            $this->currentConnection = null;
+        }
+
+        $this->connectionPool->releaseConnection($connection);
     }
 
     /**
@@ -258,15 +297,19 @@ class ChannelPool
     }
 
     /**
-     * Check if channel is open and usable
+     * Check if channel is open and usable.
+     *
+     * AMQPChannel::isConnected() reflects the same internal flag ext-amqp
+     * verifies before every channel operation, so this is the only check
+     * that actually detects channels orphaned by a dead connection
+     * (broker restart, missed heartbeats, idle disconnect). getChannelId()
+     * must NOT be used here: it returns a stored id without touching the
+     * connection and reports dead channels as healthy.
      */
     private function isChannelOpen(AMQPChannel $channel): bool
     {
         try {
-            // Try to get channel ID - this will fail if channel is closed
-            $channel->getChannelId();
-
-            return true;
+            return $channel->isConnected() && $channel->getConnection()->isConnected();
         } catch (\Exception $e) {
             return false;
         }

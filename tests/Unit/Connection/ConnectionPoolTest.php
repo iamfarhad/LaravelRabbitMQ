@@ -82,6 +82,39 @@ class ConnectionPoolTest extends UnitTestCase
         $this->assertSame($mockConnection, $connection);
     }
 
+    public function testSkipsAndClosesDeadPooledConnections(): void
+    {
+        $this->config['pool']['health_check_enabled'] = false;
+
+        $deadConnection = Mockery::mock(AMQPConnection::class);
+        $liveConnection = Mockery::mock(AMQPConnection::class);
+
+        $this->mockFactory->shouldReceive('createConnection')
+            ->times(2) // min_connections
+            ->andReturn($deadConnection, $liveConnection);
+
+        $this->mockFactory->shouldReceive('isConnectionAlive')
+            ->with($deadConnection)
+            ->andReturn(false);
+
+        $this->mockFactory->shouldReceive('isConnectionAlive')
+            ->with($liveConnection)
+            ->andReturn(true);
+
+        $this->mockFactory->shouldReceive('closeConnection')
+            ->once()
+            ->with($deadConnection);
+
+        $pool = new ConnectionPool($this->mockFactory, $this->config);
+
+        // A single call must skip past the dead pooled connection and hand
+        // out the live one instead of failing or vending a corpse.
+        $connection = $pool->getConnection();
+
+        $this->assertSame($liveConnection, $connection);
+        $this->assertEquals(1, $pool->getStats()['current_connections']);
+    }
+
     public function testCreatesNewConnectionWhenPoolEmpty(): void
     {
         $this->config['pool']['min_connections'] = 0;

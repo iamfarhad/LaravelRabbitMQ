@@ -9,6 +9,7 @@ use AMQPChannelException;
 use AMQPConnection;
 use AMQPConnectionException;
 use AMQPExchange;
+use AMQPExchangeException;
 use AMQPQueue;
 use AMQPQueueException;
 use Exception;
@@ -70,11 +71,90 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     public function getChannel(): AMQPChannel
     {
+        // A cached channel can outlive its TCP connection (broker restart,
+        // idle disconnect, missed heartbeats) — especially under Octane where
+        // this object lives across many requests. Handing out such a channel
+        // makes every AMQP*::__construct fail with "... No channel available.",
+        // so validate before reuse and transparently replace it.
+        if ($this->amqpChannel !== null && ! $this->isChannelUsable($this->amqpChannel)) {
+            $this->releaseChannel();
+        }
+
         if ($this->amqpChannel === null) {
             $this->amqpChannel = $this->poolManager->getChannel();
         }
 
         return $this->amqpChannel;
+    }
+
+    /**
+     * Whether the channel's ext-amqp "is connected" flag — the exact flag
+     * every AMQP*::__construct verifies — still holds, on both the channel
+     * and its underlying connection. No network I/O involved.
+     */
+    private function isChannelUsable(AMQPChannel $channel): bool
+    {
+        try {
+            return $channel->isConnected() && $channel->getConnection()->isConnected();
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Run an AMQP operation, transparently swapping in a fresh channel and
+     * retrying when the operation failed because the channel's underlying
+     * connection died. Broker-reported semantic errors (404 not-found,
+     * 406 precondition-failed, ...) are never retried here — a new channel
+     * would only repeat them.
+     *
+     * @template TReturn
+     *
+     * @param  callable(): TReturn  $operation
+     * @return TReturn
+     */
+    private function retryOnDeadChannel(callable $operation): mixed
+    {
+        $attempt = 0;
+
+        while (true) {
+            try {
+                return $operation();
+            } catch (AMQPConnectionException|AMQPChannelException|AMQPQueueException|AMQPExchangeException $exception) {
+                if (! $this->isDeadChannelFailure($exception)) {
+                    throw $exception;
+                }
+
+                $this->releaseChannel();
+                $attempt++;
+
+                if ($attempt >= self::RECONNECT_MAX_ATTEMPTS) {
+                    throw $exception;
+                }
+
+                usleep(self::RECONNECT_RETRY_DELAY_MS * 1000 * $attempt);
+            }
+        }
+    }
+
+    /**
+     * A connection exception always means the transport died. Channel-level
+     * exceptions are only retryable when they carry no broker error code and
+     * the current channel is actually dead — that combination is ext-amqp's
+     * "... No channel available." guard failing on a channel orphaned by a
+     * closed connection (see issue #23).
+     */
+    private function isDeadChannelFailure(Throwable $exception): bool
+    {
+        if ($exception instanceof AMQPConnectionException) {
+            return true;
+        }
+
+        if ($exception->getCode() !== 0) {
+            return false;
+        }
+
+        return $this->amqpChannel === null || ! $this->isChannelUsable($this->amqpChannel);
     }
 
     private function releaseChannel(): void
@@ -100,21 +180,23 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     {
         $queueName = $this->getQueue($queue);
 
-        try {
-            $amqpQueue = new AMQPQueue($this->getChannel());
-            $amqpQueue->setName($queueName);
-            $amqpQueue->setFlags(AMQP_PASSIVE);
+        return $this->retryOnDeadChannel(function () use ($queueName): int {
+            try {
+                $amqpQueue = new AMQPQueue($this->getChannel());
+                $amqpQueue->setName($queueName);
+                $amqpQueue->setFlags(AMQP_PASSIVE);
 
-            return $amqpQueue->declareQueue();
-        } catch (AMQPChannelException $exception) {
-            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
-                $this->releaseChannel();
+                return $amqpQueue->declareQueue();
+            } catch (AMQPChannelException $exception) {
+                if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
+                    $this->releaseChannel();
 
-                return 0;
+                    return 0;
+                }
+
+                throw $exception;
             }
-
-            throw $exception;
-        }
+        });
     }
 
     public function pendingSize($queue = null): int
@@ -306,9 +388,8 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         array $arguments = []
     ): void {
         $mergedArguments = array_merge($this->getQueueArguments($name), $arguments);
-        $attempt = 0;
 
-        while (true) {
+        $this->retryOnDeadChannel(function () use ($name, $durable, $autoDelete, $mergedArguments): void {
             try {
                 $amqpQueue = new AMQPQueue($this->getChannel());
                 $amqpQueue->setName($name);
@@ -323,25 +404,14 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
                 }
 
                 $amqpQueue->declareQueue();
-
-                return;
             } catch (AMQPChannelException|AMQPQueueException $exception) {
-                if ($exception->getCode() !== self::QUEUE_ALREADY_EXISTS_CODE) {
-                    throw $exception;
+                if ($exception->getCode() === self::QUEUE_ALREADY_EXISTS_CODE) {
+                    return;
                 }
 
-                return;
-            } catch (AMQPConnectionException $exception) {
-                $this->releaseChannel();
-                $attempt++;
-
-                if ($attempt >= self::RECONNECT_MAX_ATTEMPTS) {
-                    throw $exception;
-                }
-
-                usleep(self::RECONNECT_RETRY_DELAY_MS * 1000 * $attempt);
+                throw $exception;
             }
-        }
+        });
     }
 
     private function declareDestination(string $queueName, array $options = []): void
@@ -359,11 +429,13 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     private function declareExchange(string $name, string $type = AMQP_EX_TYPE_DIRECT): void
     {
-        $exchange = new AMQPExchange($this->getChannel());
-        $exchange->setName($name);
-        $exchange->setType($type);
-        $exchange->setFlags(AMQP_DURABLE);
-        $exchange->declareExchange();
+        $this->retryOnDeadChannel(function () use ($name, $type): void {
+            $exchange = new AMQPExchange($this->getChannel());
+            $exchange->setName($name);
+            $exchange->setType($type);
+            $exchange->setFlags(AMQP_DURABLE);
+            $exchange->declareExchange();
+        });
     }
 
     private function declareDelayQueue(string $delayQueueName, string $targetQueueName, int $ttl): void
@@ -409,8 +481,21 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return;
         }
 
+        // Use the cached channel directly — never getChannel(), which may
+        // swap in a replacement where this delivery tag is meaningless or,
+        // worse, refers to an unrelated delivery. If the delivering channel
+        // is already gone, dropping it is enough: the broker requeues the
+        // unacked message once it notices the channel died.
+        $channel = $this->amqpChannel;
+
+        if ($channel === null || ! $this->isChannelUsable($channel)) {
+            $this->releaseChannel();
+
+            return;
+        }
+
         try {
-            $amqpQueue = new AMQPQueue($this->getChannel());
+            $amqpQueue = new AMQPQueue($channel);
             $amqpQueue->setName($rabbitMQJob->getQueue());
             $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
         } catch (AMQPChannelException|AMQPConnectionException) {
@@ -430,8 +515,16 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return;
         }
 
+        $channel = $this->amqpChannel;
+
+        if ($channel === null || ! $this->isChannelUsable($channel)) {
+            $this->releaseChannel();
+
+            return;
+        }
+
         try {
-            $amqpQueue = new AMQPQueue($this->getChannel());
+            $amqpQueue = new AMQPQueue($channel);
             $amqpQueue->setName($rabbitMQJob->getQueue());
             $amqpQueue->ack($deliveryTag);
         } catch (AMQPChannelException|AMQPConnectionException) {
@@ -451,9 +544,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     public function purgeQueue(string $queueName)
     {
-        $attempt = 0;
-
-        while (true) {
+        return $this->retryOnDeadChannel(function () use ($queueName) {
             try {
                 $amqpQueue = new AMQPQueue($this->getChannel());
                 $amqpQueue->setName($queueName);
@@ -465,24 +556,13 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
                 }
 
                 throw $exception;
-            } catch (AMQPConnectionException $exception) {
-                $this->releaseChannel();
-                $attempt++;
-
-                if ($attempt >= self::RECONNECT_MAX_ATTEMPTS) {
-                    throw $exception;
-                }
-
-                usleep(self::RECONNECT_RETRY_DELAY_MS * 1000 * $attempt);
             }
-        }
+        });
     }
 
     public function deleteQueue(string $queueName)
     {
-        $attempt = 0;
-
-        while (true) {
+        return $this->retryOnDeadChannel(function () use ($queueName) {
             try {
                 $amqpQueue = new AMQPQueue($this->getChannel());
                 $amqpQueue->setName($queueName);
@@ -494,17 +574,8 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
                 }
 
                 throw $exception;
-            } catch (AMQPConnectionException $exception) {
-                $this->releaseChannel();
-                $attempt++;
-
-                if ($attempt >= self::RECONNECT_MAX_ATTEMPTS) {
-                    throw $exception;
-                }
-
-                usleep(self::RECONNECT_RETRY_DELAY_MS * 1000 * $attempt);
             }
-        }
+        });
     }
 
     private function publishMessage(string $payload, string $queueName, int $attempts = 2, array $options = []): string
@@ -520,13 +591,9 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $messageAttributes['priority'] = max(0, min($attempts, $this->getQueueMaxPriority()));
         }
 
-        try {
-            return $this->doPublish($payload, $queueName, $messageAttributes, $options);
-        } catch (AMQPChannelException|AMQPConnectionException) {
-            $this->releaseChannel();
-
-            return $this->doPublish($payload, $queueName, $messageAttributes, $options);
-        }
+        return $this->retryOnDeadChannel(
+            fn (): string => $this->doPublish($payload, $queueName, $messageAttributes, $options)
+        );
     }
 
     private function doPublish(string $payload, string $queueName, array $messageAttributes, array $options = []): string
