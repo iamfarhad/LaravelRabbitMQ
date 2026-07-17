@@ -74,7 +74,10 @@
     "autoload-dev": {
         "psr-4": {
             "iamfarhad\\LaravelRabbitMQ\\Tests\\": "tests/"
-        }
+        },
+        "files": [
+            "tests/stubs/amqp_stubs.php"
+        ]
     },
     "scripts": {
         "test": "vendor/bin/phpunit",

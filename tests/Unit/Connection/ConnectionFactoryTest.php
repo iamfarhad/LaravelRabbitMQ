@@ -10,7 +10,16 @@ use iamfarhad\LaravelRabbitMQ\Connection\ConnectionFactory;
 use iamfarhad\LaravelRabbitMQ\Exceptions\ConnectionException;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Mockery;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
+/**
+ * Each test runs in its own process: this file mixes Mockery `overload:`
+ * mocks with plain AMQPConnection mocks, which collide when defined in the
+ * same process.
+ */
+#[RunTestsInSeparateProcesses]
+#[PreserveGlobalState(false)]
 class ConnectionFactoryTest extends UnitTestCase
 {
     private array $config;
@@ -64,32 +73,36 @@ class ConnectionFactoryTest extends UnitTestCase
     public function testCreatesConnectionWithRetryOnFailure(): void
     {
         $this->config['pool']['max_retries'] = 2;
+        $this->config['pool']['retry_delay'] = 1; // keep the failing retry fast
         $factory = new ConnectionFactory($this->config);
+
+        $connectCalls = 0;
 
         // Mock AMQPConnection to fail first time, succeed second time
         $mockConnection = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnection->shouldReceive('__construct')->twice();
-        $mockConnection->shouldReceive('connect')
-            ->once()
-            ->andThrow(new AMQPConnectionException('Connection failed'))
-            ->once()
-            ->andReturn(true);
+        $mockConnection->shouldReceive('__construct');
+        $mockConnection->shouldReceive('connect')->andReturnUsing(function () use (&$connectCalls): void {
+            if (++$connectCalls === 1) {
+                throw new AMQPConnectionException('Connection failed');
+            }
+        });
 
         $connection = $factory->createConnection();
 
         $this->assertInstanceOf(AMQPConnection::class, $connection);
+        $this->assertSame(2, $connectCalls);
     }
 
     public function testThrowsExceptionAfterMaxRetries(): void
     {
         $this->config['pool']['max_retries'] = 2;
+        $this->config['pool']['retry_delay'] = 1; // keep the failing retries fast
         $factory = new ConnectionFactory($this->config);
 
         // Mock AMQPConnection to always fail
         $mockConnection = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnection->shouldReceive('__construct')->twice();
+        $mockConnection->shouldReceive('__construct');
         $mockConnection->shouldReceive('connect')
-            ->twice()
             ->andThrow(new AMQPConnectionException('Connection failed'));
 
         $this->expectException(ConnectionException::class);

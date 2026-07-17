@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+- **"Could not create queue. No channel available." under Octane / long-lived workers** ([#23](https://github.com/iamfarhad/LaravelRabbitMQ/issues/23)): when a connection died (broker restart, idle disconnect, missed heartbeats), its channels stayed in the pool and kept being handed out, so every subsequent operation failed with ext-amqp's "… No channel available." error until the worker was recycled. Recovery is now automatic:
+  - The pool's channel liveness check now uses `AMQPChannel::isConnected()` (the same internal flag ext-amqp verifies before every operation) instead of `getChannelId()`, which never detects a dead connection. Dead channels are drained from the pool instead of being vended.
+  - `RabbitQueue` validates its cached channel before reuse and transparently replaces it when the underlying connection is gone — essential for Octane/Swoole workers whose queue instance lives across many requests.
+  - Queue/exchange declaration, publishing, purge, delete, and size operations now retry on a fresh channel (with backoff) when they fail because the channel's connection died. Broker-reported semantic errors (404 not-found, 406 precondition-failed, …) still surface immediately and are never retried.
+  - The channel pool no longer multiplexes new channels onto a connection the broker has already closed, and retries channel creation once on a fresh connection; the connection pool skips and closes dead pooled connections instead of giving up after inspecting only one.
+  - `ack`/`reject` now operate strictly on the channel that delivered the message: if that channel is dead they release it and let the broker requeue, instead of risking a delivery-tag mix-up on a replacement channel.
+
 ## [1.3.1] - 2026-07-15
 
 ### 🐛 Fixed

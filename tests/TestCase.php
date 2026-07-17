@@ -14,6 +14,12 @@ abstract class TestCase extends Orchestra
 
     protected function setUp(): void
     {
+        // Everything extending this TestCase boots the real rabbitmq queue
+        // driver, which constructs genuine AMQP objects.
+        if (! extension_loaded('amqp')) {
+            $this->markTestSkipped('Test skipped: the AMQP extension is required to boot the RabbitMQ queue driver');
+        }
+
         parent::setUp();
 
         // Only check RabbitMQ connection for integration tests
@@ -73,13 +79,16 @@ abstract class TestCase extends Orchestra
 
     protected function tearDown(): void
     {
-        // Clean up any test queues - only if RabbitMQ connection is available
+        // Clean up any test queues - only if the app was booted (setUp may
+        // have skipped before booting) and RabbitMQ connection is available
         try {
-            $connection = \Queue::connection('rabbitmq');
-            if ($connection instanceof RabbitQueue) {
-                $testQueues = ['test-queue', 'priority-queue', 'size-test-queue', 'default'];
-                foreach ($testQueues as $queue) {
-                    $connection->purgeQueue($queue);
+            if ($this->app !== null) {
+                $connection = \Queue::connection('rabbitmq');
+                if ($connection instanceof RabbitQueue) {
+                    $testQueues = ['test-queue', 'priority-queue', 'size-test-queue', 'default'];
+                    foreach ($testQueues as $queue) {
+                        $connection->purgeQueue($queue);
+                    }
                 }
             }
         } catch (\Exception $e) {

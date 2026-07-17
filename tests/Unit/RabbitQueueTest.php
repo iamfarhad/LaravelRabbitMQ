@@ -158,7 +158,14 @@ class RabbitQueueTest extends UnitTestCase
     public function testRabbitQueueHandlesMultipleChannelRequests(): void
     {
         $mockPoolManager = Mockery::mock(PoolManager::class);
+        $mockConnection = Mockery::mock(AMQPConnection::class);
         $mockChannel = Mockery::mock(AMQPChannel::class);
+
+        // The cached channel is revalidated on reuse, so it must report as
+        // connected for the cache to be kept.
+        $mockConnection->shouldReceive('isConnected')->andReturn(true);
+        $mockChannel->shouldReceive('isConnected')->andReturn(true);
+        $mockChannel->shouldReceive('getConnection')->andReturn($mockConnection);
 
         // Should only call getChannel once due to internal caching
         $mockPoolManager->shouldReceive('getChannel')

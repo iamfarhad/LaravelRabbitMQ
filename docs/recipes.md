@@ -99,6 +99,41 @@ If an application needs a fresh pool after each Octane request:
 RABBITMQ_OCTANE_RESET_ON_REQUEST=true
 ```
 
+### Long-lived workers and dropped connections
+
+Octane workers live for many requests, so a pooled AMQP connection will
+eventually be closed underneath them — a broker restart, an idle disconnect, a
+load balancer timeout, or missed heartbeats. The pool detects dead channels and
+connections when they are next used and transparently replaces them, so no
+special configuration is required for recovery.
+
+Recommended settings for Octane (Swoole or RoadRunner):
+
+```env
+QUEUE_CONNECTION=rabbitmq
+
+# Keep pooled connections warm across requests; recovery is automatic.
+RABBITMQ_OCTANE_RESET_ON_REQUEST=false
+
+# Heartbeats let the broker and client notice dead peers sooner. Keep it
+# lower than any idle timeout between the app and the broker.
+RABBITMQ_HEARTBEAT_CONNECTION=30
+
+RABBITMQ_READ_TIMEOUT=10
+RABBITMQ_WRITE_TIMEOUT=10
+RABBITMQ_CONNECT_TIMEOUT=5
+
+# Periodically sweep pooled-but-idle channels/connections.
+RABBITMQ_HEALTH_CHECK_ENABLED=true
+RABBITMQ_HEALTH_CHECK_INTERVAL=10
+```
+
+Size `RABBITMQ_MAX_CONNECTIONS` from your worker count: each worker process
+holds its own pool, so the limit applies per process, not per host. A publisher
+usually needs a single connection (channels are multiplexed onto it up to
+`RABBITMQ_MAX_CHANNELS_PER_CONNECTION`), so the default of 10 per process is
+already generous.
+
 ## Multi-host failover
 
 ```php

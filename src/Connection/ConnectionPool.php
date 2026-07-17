@@ -52,7 +52,9 @@ class ConnectionPool
     {
         $this->performHealthCheckIfNeeded();
 
-        if (! $this->availableConnections->isEmpty()) {
+        // Reuse the first healthy pooled connection, dropping dead ones along
+        // the way (a broker restart can kill every pooled connection at once).
+        while (! $this->availableConnections->isEmpty()) {
             $connection = $this->availableConnections->dequeue();
 
             if ($this->factory->isConnectionAlive($connection)) {
@@ -62,6 +64,7 @@ class ConnectionPool
                 return $connection;
             }
 
+            $this->factory->closeConnection($connection);
             $this->currentConnections--;
         }
 

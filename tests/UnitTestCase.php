@@ -25,6 +25,17 @@ abstract class UnitTestCase extends TestCase
         }
     }
 
+    /**
+     * Skip test if the AMQP extension is missing (for tests that construct
+     * real AMQP objects instead of mocking them)
+     */
+    protected function skipIfAmqpExtensionNotLoaded(): void
+    {
+        if (! extension_loaded('amqp')) {
+            $this->markTestSkipped('Test skipped: AMQP extension is required to construct real AMQP objects');
+        }
+    }
+
     protected function tearDown(): void
     {
         if (class_exists(\Mockery::class)) {

@@ -6,13 +6,24 @@ namespace iamfarhad\LaravelRabbitMQ\Tests\Unit\Connection;
 
 use AMQPChannel;
 use AMQPConnection;
+use AMQPConnectionException;
 use iamfarhad\LaravelRabbitMQ\Connection\ChannelPool;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionFactory;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionPool;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Mockery;
+use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
+/**
+ * Each test runs in its own process because Mockery `overload:` mocks can
+ * only be defined once per process. Expectations are set on the overload
+ * template, which applies them to every instance the pool creates.
+ */
+#[RunTestsInSeparateProcesses]
+#[PreserveGlobalState(false)]
 class PoolManagerTest extends UnitTestCase
 {
     private array $config;
@@ -42,8 +53,48 @@ class PoolManagerTest extends UnitTestCase
         ];
     }
 
+    /**
+     * Overload template applied to every `new AMQPConnection()` the pool makes.
+     */
+    private function mockConnectionTemplate(): MockInterface
+    {
+        $template = Mockery::mock('overload:'.AMQPConnection::class);
+        $template->shouldReceive('__construct');
+        $template->shouldReceive('connect');
+        $template->shouldReceive('isConnected')->andReturn(true);
+        $template->shouldReceive('disconnect');
+
+        return $template;
+    }
+
+    /**
+     * Overload template applied to every `new AMQPChannel()` the pool makes.
+     */
+    private function mockChannelTemplate(): MockInterface
+    {
+        // A plain Mockery mock of AMQPConnection would collide with the
+        // overload template's generated class, so use a simple stand-in.
+        $connectionForChannel = new class
+        {
+            public function isConnected(): bool
+            {
+                return true;
+            }
+        };
+
+        $template = Mockery::mock('overload:'.AMQPChannel::class);
+        $template->shouldReceive('__construct');
+        $template->shouldReceive('isConnected')->andReturn(true);
+        $template->shouldReceive('getConnection')->andReturn($connectionForChannel);
+        $template->shouldReceive('close');
+
+        return $template;
+    }
+
     public function testCreatesPoolManagerSuccessfully(): void
     {
+        $this->mockConnectionTemplate();
+
         $poolManager = new PoolManager($this->config);
 
         $this->assertInstanceOf(PoolManager::class, $poolManager);
@@ -51,19 +102,8 @@ class PoolManagerTest extends UnitTestCase
 
     public function testGetsChannelFromPool(): void
     {
-        // Mock the dependencies
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-        $mockChannel = Mockery::mock(AMQPChannel::class);
-
-        // Mock AMQPConnection constructor
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->once();
-
-        // Mock AMQPChannel constructor
-        $mockChannelClass = Mockery::mock('overload:'.AMQPChannel::class);
-        $mockChannelClass->shouldReceive('__construct')->andReturn($mockChannel);
-        $mockChannel->shouldReceive('getChannelId')->andReturn(1);
+        $this->mockConnectionTemplate();
+        $this->mockChannelTemplate();
 
         $poolManager = new PoolManager($this->config);
         $channel = $poolManager->getChannel();
@@ -73,37 +113,22 @@ class PoolManagerTest extends UnitTestCase
 
     public function testReleasesChannelToPool(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-        $mockChannel = Mockery::mock(AMQPChannel::class);
-
-        // Mock AMQPConnection constructor
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->once();
-
-        // Mock AMQPChannel constructor
-        $mockChannelClass = Mockery::mock('overload:'.AMQPChannel::class);
-        $mockChannelClass->shouldReceive('__construct')->andReturn($mockChannel);
-        $mockChannel->shouldReceive('getChannelId')->twice(); // Once for get, once for release check
+        $this->mockConnectionTemplate();
+        $this->mockChannelTemplate();
 
         $poolManager = new PoolManager($this->config);
 
         $channel = $poolManager->getChannel();
         $poolManager->releaseChannel($channel);
 
-        // No exception should be thrown
-        $this->assertTrue(true);
+        $stats = $poolManager->getStats();
+        $this->assertEquals(0, $stats['channel_pool']['active_channels']);
+        $this->assertEquals(1, $stats['channel_pool']['available_channels']);
     }
 
     public function testGetsConnectionFromPool(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-
-        // Mock AMQPConnection constructor
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->once();
-        $mockConnection->shouldReceive('isConnected')->once()->andReturn(true);
+        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $connection = $poolManager->getConnection();
@@ -113,93 +138,62 @@ class PoolManagerTest extends UnitTestCase
 
     public function testReleasesConnectionToPool(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-
-        // Mock AMQPConnection constructor
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->once();
-        $mockConnection->shouldReceive('isConnected')->twice()->andReturn(true);
+        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
 
         $connection = $poolManager->getConnection();
-        $poolManager->releaseConnection($connection);
+        $statsAfterGet = $poolManager->getStats();
 
-        // No exception should be thrown
-        $this->assertTrue(true);
+        $poolManager->releaseConnection($connection);
+        $statsAfterRelease = $poolManager->getStats();
+
+        $this->assertEquals(1, $statsAfterGet['connection_pool']['available_connections']);
+        $this->assertEquals(2, $statsAfterRelease['connection_pool']['available_connections']);
     }
 
     public function testClosesSpecificChannel(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-        $mockChannel = Mockery::mock(AMQPChannel::class);
-
-        // Mock AMQPConnection constructor
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->once();
-
-        // Mock AMQPChannel constructor
-        $mockChannelClass = Mockery::mock('overload:'.AMQPChannel::class);
-        $mockChannelClass->shouldReceive('__construct')->andReturn($mockChannel);
-        $mockChannel->shouldReceive('getChannelId')->twice(); // Once for get, once for close check
-        $mockChannel->shouldReceive('close')->once();
+        $this->mockConnectionTemplate();
+        $this->mockChannelTemplate();
 
         $poolManager = new PoolManager($this->config);
 
         $channel = $poolManager->getChannel();
         $poolManager->closeChannel($channel);
 
-        // No exception should be thrown
-        $this->assertTrue(true);
+        $stats = $poolManager->getStats();
+        $this->assertEquals(0, $stats['channel_pool']['current_channels']);
     }
 
     public function testClosesSpecificConnection(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-
-        // Mock AMQPConnection constructor
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->once();
-        $mockConnection->shouldReceive('isConnected')->twice()->andReturn(true);
-        $mockConnection->shouldReceive('disconnect')->once();
+        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
 
         $connection = $poolManager->getConnection();
         $poolManager->closeConnection($connection);
 
-        // No exception should be thrown
-        $this->assertTrue(true);
+        $stats = $poolManager->getStats();
+        $this->assertEquals(1, $stats['connection_pool']['current_connections']);
     }
 
     public function testClosesAllPools(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-
-        // Mock AMQPConnection constructor for min_connections
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->twice(); // min_connections = 2
-        $mockConnection->shouldReceive('disconnect')->twice();
+        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $poolManager->closeAll();
 
-        // No exception should be thrown
-        $this->assertTrue(true);
+        $stats = $poolManager->getStats();
+        $this->assertEquals(0, $stats['connection_pool']['current_connections']);
+        $this->assertEquals(0, $stats['channel_pool']['current_channels']);
     }
 
     public function testReturnsComprehensiveStats(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-
-        // Mock AMQPConnection constructor for min_connections
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->twice(); // min_connections = 2
+        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $stats = $poolManager->getStats();
@@ -219,12 +213,7 @@ class PoolManagerTest extends UnitTestCase
 
     public function testChecksPoolHealth(): void
     {
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-
-        // Mock AMQPConnection constructor for min_connections
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')->twice(); // min_connections = 2
+        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $isHealthy = $poolManager->isHealthy();
@@ -235,16 +224,18 @@ class PoolManagerTest extends UnitTestCase
     public function testDetectsUnhealthyPool(): void
     {
         $this->config['pool']['min_connections'] = 5;
+        $this->config['pool']['retry_delay'] = 1; // keep the failing retries fast
 
-        $mockConnection = Mockery::mock(AMQPConnection::class);
-
-        // Mock AMQPConnection constructor but only create 2 connections (less than min)
-        $mockConnectionClass = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnectionClass->shouldReceive('__construct')->times(2)->andReturn($mockConnection);
-        $mockConnection->shouldReceive('connect')
-            ->twice()
-            ->andReturn(true)
-            ->andThrow(new \Exception('Connection failed')); // Fail after 2 connections
+        // Only the first two connection attempts succeed, leaving the pool
+        // below its minimum size.
+        $template = Mockery::mock('overload:'.AMQPConnection::class);
+        $template->shouldReceive('__construct');
+        $template->shouldReceive('connect')->andReturnUsing(function (): void {
+            static $attempts = 0;
+            if (++$attempts > 2) {
+                throw new AMQPConnectionException('Connection failed');
+            }
+        });
 
         $poolManager = new PoolManager($this->config);
         $isHealthy = $poolManager->isHealthy();
@@ -254,6 +245,8 @@ class PoolManagerTest extends UnitTestCase
 
     public function testProvidesAccessToIndividualPools(): void
     {
+        $this->config['pool']['min_connections'] = 0; // avoid eager connections
+
         $poolManager = new PoolManager($this->config);
 
         $this->assertInstanceOf(ConnectionFactory::class, $poolManager->getConnectionFactory());
