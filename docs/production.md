@@ -143,7 +143,10 @@ RABBITMQ_PUBLISHER_CONFIRMS_ENABLED=true
 RABBITMQ_PUBLISHER_CONFIRMS_TIMEOUT=5
 ```
 
-This improves delivery confidence at the cost of extra publish latency.
+This improves delivery confidence at the cost of extra publish latency. A
+broker NACK fails only the publish it belongs to: it surfaces as an exception
+from that publish and is then cleared, so a long-lived publisher or worker
+keeps reporting later acknowledged publishes as successful.
 
 ## Quorum queues
 
@@ -164,6 +167,29 @@ RABBITMQ_FAILED_ROUTING_KEY=%s.failed
 ```
 
 Create dashboards and alerts around failed exchanges and DLQs.
+
+### Failure ownership
+
+A permanently failed job reaches exactly one failure sink, selected by
+`RABBITMQ_FAILED_OWNERSHIP`:
+
+| Value | Behaviour |
+| --- | --- |
+| `broker` (default) | The job is rejected without requeue and the queue's configured `x-dead-letter-exchange` owns the failure. Use this with `RABBITMQ_REROUTE_FAILED=true`. |
+| `exchange` | The job is rejected without requeue and a copy is also published to the queue named by `RABBITMQ_FAILED_MESSAGES_EXCHANGE` (default `failed_messages`). |
+
+```env
+# Broker-owned failures (recommended): one record, in the DLQ.
+RABBITMQ_FAILED_OWNERSHIP=broker
+
+# Package-owned failures: a copy in a dedicated queue instead.
+RABBITMQ_FAILED_OWNERSHIP=exchange
+RABBITMQ_FAILED_MESSAGES_EXCHANGE=failed_messages
+```
+
+Do not point `exchange` ownership at a queue that also has dead-letter routing
+configured — the same failure would then be recorded twice, with divergent
+retention, alerting, and replay policies.
 
 ## Operational checklist
 

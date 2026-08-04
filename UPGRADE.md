@@ -32,6 +32,34 @@ php artisan rabbitmq:consume --queue=default --num-processes=1 --once
 
 If your version of `rabbitmq:consume` does not support `--once`, run it in a controlled environment and stop it after a successful job.
 
+## Upgrading to 1.3.5
+
+### Terminal failure ownership changed
+
+Permanently failed jobs are no longer copied to the `failed_messages` exchange
+by default. A failed job is now rejected without requeue, which hands it to the
+queue's configured `x-dead-letter-exchange` — one failure, one sink. Previously
+both happened, so a queue with dead-letter routing recorded every failure twice.
+
+- Using `RABBITMQ_REROUTE_FAILED=true` or any other dead-letter routing: no
+  action needed. The duplicate `failed_messages` record simply stops appearing.
+- Relying on the `failed_messages` copy: keep the old behaviour explicitly, and
+  make sure the source queue has no dead-letter exchange of its own.
+
+  ```env
+  RABBITMQ_FAILED_OWNERSHIP=exchange
+  RABBITMQ_FAILED_MESSAGES_EXCHANGE=failed_messages
+  ```
+
+Drain any existing `failed_messages` queue before switching, and point failure
+dashboards, alerts, and replay tooling at whichever sink you selected.
+
+### Consumer command options
+
+`rabbitmq:consume` now accepts `--stop-when-empty-for` and `--json` with the
+same meaning as `queue:work`. On Laravel 13 the command failed to start without
+them; no configuration change is required.
+
 ## Upgrading PHP or Laravel
 
 - PHP 8.2, 8.3, 8.4, and 8.5 are supported.
