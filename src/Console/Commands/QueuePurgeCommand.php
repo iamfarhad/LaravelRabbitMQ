@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Console\Commands;
 
-use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\Concerns\ResolvesRabbitQueue;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Queue;
 
 class QueuePurgeCommand extends Command
 {
-    protected $signature = 'rabbitmq:queue-purge {name : Queue name} {--force : Skip confirmation}';
+    use ResolvesRabbitQueue;
+
+    protected $signature = 'rabbitmq:queue-purge
+                            {name : Queue name}
+                            {--connection= : The RabbitMQ queue connection to use}
+                            {--force : Skip confirmation}';
 
     protected $description = 'Purge all ready messages from a RabbitMQ queue';
 
@@ -24,11 +28,9 @@ class QueuePurgeCommand extends Command
             return self::SUCCESS;
         }
 
-        $connection = Queue::connection('rabbitmq');
+        $connection = $this->resolveRabbitQueue();
 
-        if (! $connection instanceof RabbitQueue) {
-            $this->error('The rabbitmq queue connection is not configured.');
-
+        if ($connection === null) {
             return self::FAILURE;
         }
 

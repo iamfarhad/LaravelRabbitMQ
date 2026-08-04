@@ -1,0 +1,107 @@
+name: Release
+
+# The only supported way to publish a release.
+#
+# Changelog verification used to run on `release: [released]`, i.e. after the tag
+# and GitHub release already existed, so it could report a missing or undated
+# section but never prevent publishing one (issue #36). Validation now runs
+# first, and publication depends on it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.5.0 (a leading "v" is accepted)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Validate only; do not create the tag or release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.normalise.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Normalise version
+        id: normalise
+        run: |
+          RAW="${{ inputs.version }}"
+          VERSION="${RAW#v}"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::[$RAW] is not a semantic version."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
+      - name: Reject an existing tag
+        run: |
+          VERSION="${{ steps.normalise.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null \
+            || git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag for $VERSION already exists."
+            exit 1
+          fi
+
+      # The gate. Requires exactly one dated "## [x.y.z] - YYYY-MM-DD" section
+      # with content, so notes left under [Unreleased] cannot be published.
+      - name: Validate CHANGELOG section
+        run: php scripts/validate-changelog.php "${{ steps.normalise.outputs.version }}"
+
+  publish:
+    name: Publish release
+    needs: validate
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract release notes
+        id: notes
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            awk -v v="$VERSION" '
+              $0 ~ "^## \\[v?" v "\\]" { inside = 1; next }
+              inside && /^## / { exit }
+              inside { print }
+            ' CHANGELOG.md
+            echo 'RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "refs/tags/$VERSION"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate.outputs.version }}
+          name: ${{ needs.validate.outputs.version }}
+          body: ${{ steps.notes.outputs.body }}
+          make_latest: true

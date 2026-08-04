@@ -16,18 +16,9 @@ abstract class UnitTestCase extends TestCase
     }
 
     /**
-     * Skip test if AMQP extension is loaded (prevents mocking conflicts)
-     */
-    protected function skipIfAmqpExtensionLoaded(): void
-    {
-        if (extension_loaded('amqp')) {
-            $this->markTestSkipped('Test skipped: AMQP extension is loaded which prevents proper mocking of AMQP classes');
-        }
-    }
-
-    /**
-     * Skip test if the AMQP extension is missing (for tests that construct
-     * real AMQP objects instead of mocking them)
+     * Skip a test that constructs real AMQP objects when the extension is
+     * missing. `ext-amqp` is a hard package requirement, so this should only
+     * ever trigger on an incorrectly provisioned machine.
      */
     protected function skipIfAmqpExtensionNotLoaded(): void
     {

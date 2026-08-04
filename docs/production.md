@@ -118,21 +118,29 @@ spec:
 
 ## Prefetch and concurrency
 
-Start conservative:
+`basic.qos` governs `basic_consume` deliveries only, so prefetch applies to
+`RABBITMQ_CONSUME_MODE=consume` and does nothing in the default `poll` mode.
+
+The default is `1`, which is the right value for a single-threaded worker: it
+runs one job at a time, and anything prefetched beyond that sits unacked behind
+the job in flight — where a timeout, memory limit or crash turns it into a
+redelivery rather than throughput.
 
 ```php
 'options' => [
     'queue' => [
         'qos' => [
             'prefetch_size' => 0,
-            'prefetch_count' => 10,
-            'global' => false,
+            'prefetch_count' => 1,
         ],
     ],
 ],
 ```
 
-Increase `prefetch_count` only after measuring processing time, memory usage, and retry behavior.
+Raise `prefetch_count` only for short, I/O-bound jobs, and only after measuring
+processing time, memory usage and retry behaviour. Make sure your job timeout is
+comfortably shorter than the time it takes to work through a full prefetch batch,
+or the tail of every batch gets redelivered.
 
 ## Publisher confirms
 

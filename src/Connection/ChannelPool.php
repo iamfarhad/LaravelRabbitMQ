@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace iamfarhad\LaravelRabbitMQ\Connection;
 
 use AMQPChannel;
-use AMQPChannelException;
 use AMQPConnection;
-use AMQPConnectionException;
+use AMQPException;
 use iamfarhad\LaravelRabbitMQ\Exceptions\QueueException;
 use SplQueue;
 
@@ -22,6 +21,16 @@ class ChannelPool
     private array $channelConnections = []; // Track which connection each channel belongs to
 
     private array $connectionChannelCounts = []; // Track how many channels are bound to each connection
+
+    /**
+     * Channels carrying connection-scoped state that AMQP provides no way to
+     * undo — publisher confirm mode, an open transaction, a QoS prefetch.
+     * Reusing one would silently impose that state on the next borrower, so
+     * they are closed on release instead of being pooled.
+     *
+     * @var array<int, true>
+     */
+    private array $dirtyChannels = [];
 
     private ?AMQPConnection $currentConnection = null; // Connection new channels are multiplexed onto
 
@@ -41,9 +50,13 @@ class ChannelPool
         $this->availableChannels = new SplQueue;
 
         $poolConfig = $config['pool'] ?? [];
-        $this->maxChannelsPerConnection = $poolConfig['max_channels_per_connection'] ?? 100;
-        $this->healthCheckEnabled = $poolConfig['health_check_enabled'] ?? true;
-        $this->healthCheckInterval = $poolConfig['health_check_interval'] ?? 30; // seconds
+
+        // Cast explicitly: env() only coerces true/false/null/empty, so any
+        // numeric value set in .env arrives here as a string and would be a
+        // TypeError against these typed properties.
+        $this->maxChannelsPerConnection = max(1, (int) ($poolConfig['max_channels_per_connection'] ?? 100));
+        $this->healthCheckEnabled = (bool) ($poolConfig['health_check_enabled'] ?? true);
+        $this->healthCheckInterval = max(1, (int) ($poolConfig['health_check_interval'] ?? 30)); // seconds
     }
 
     /**
@@ -76,6 +89,19 @@ class ChannelPool
     }
 
     /**
+     * Mark a channel as carrying state that must not leak to the next borrower.
+     */
+    public function markDirty(AMQPChannel $channel): void
+    {
+        $this->dirtyChannels[spl_object_id($channel)] = true;
+    }
+
+    public function isDirty(AMQPChannel $channel): bool
+    {
+        return isset($this->dirtyChannels[spl_object_id($channel)]);
+    }
+
+    /**
      * Return a channel to the pool
      */
     public function releaseChannel(AMQPChannel $channel): void
@@ -87,6 +113,14 @@ class ChannelPool
         }
 
         unset($this->activeChannels[$channelId]);
+
+        if (isset($this->dirtyChannels[$channelId])) {
+            // Confirm mode and transaction mode cannot be switched off, and a
+            // stale confirm callback would keep firing into a dead closure.
+            $this->closeChannel($channel);
+
+            return;
+        }
 
         // Check if channel is still open before returning to pool
         if ($this->isChannelOpen($channel)) {
@@ -105,9 +139,7 @@ class ChannelPool
         $channelId = spl_object_id($channel);
 
         // Remove from active channels
-        if (isset($this->activeChannels[$channelId])) {
-            unset($this->activeChannels[$channelId]);
-        }
+        unset($this->activeChannels[$channelId], $this->dirtyChannels[$channelId]);
 
         // Remove from available channels if present
         $tempQueue = new SplQueue;
@@ -122,10 +154,10 @@ class ChannelPool
         // Close the channel safely
         $this->safeCloseChannel($channel);
 
-        // Clean up tracking
+        // Clean up tracking. The channel counter is only decremented for
+        // channels this pool actually created and still tracks, so repeated or
+        // foreign closes can never drive it negative.
         $this->unbindChannelFromConnection($channelId);
-
-        $this->currentChannels--;
     }
 
     /**
@@ -133,7 +165,6 @@ class ChannelPool
      */
     public function closeAll(): void
     {
-
         // Close active channels
         foreach ($this->activeChannels as $channel) {
             $this->safeCloseChannel($channel);
@@ -148,6 +179,7 @@ class ChannelPool
 
         $this->channelConnections = [];
         $this->connectionChannelCounts = [];
+        $this->dirtyChannels = [];
         $this->currentConnection = null;
         $this->currentChannels = 0;
     }
@@ -162,7 +194,9 @@ class ChannelPool
             'current_channels' => $this->currentChannels,
             'active_channels' => count($this->activeChannels),
             'available_channels' => $this->availableChannels->count(),
+            'dirty_channels' => count($this->dirtyChannels),
             'health_check_enabled' => $this->healthCheckEnabled,
+            'health_check_interval' => $this->healthCheckInterval,
             'last_health_check' => $this->lastHealthCheck,
         ];
     }
@@ -180,13 +214,13 @@ class ChannelPool
             $connection = $this->acquireConnectionForNewChannel();
 
             try {
-                $channel = new AMQPChannel($connection);
-            } catch (AMQPChannelException|AMQPConnectionException $e) {
+                $channel = $this->newAmqpChannel($connection);
+            } catch (AMQPException $e) {
                 // The connection died between the liveness check and channel
                 // creation; discard it and retry once on a fresh connection.
                 $this->discardConnection($connection);
                 $connection = $this->acquireConnectionForNewChannel();
-                $channel = new AMQPChannel($connection);
+                $channel = $this->newAmqpChannel($connection);
             }
 
             $channelId = spl_object_id($channel);
@@ -195,13 +229,21 @@ class ChannelPool
             $this->currentChannels++;
 
             return $channel;
-        } catch (AMQPChannelException|AMQPConnectionException $e) {
+        } catch (AMQPException $e) {
             throw new QueueException(
                 'Failed to create AMQP channel: '.$e->getMessage(),
                 $e->getCode(),
                 $e
             );
         }
+    }
+
+    /**
+     * ext-amqp object-creation seam; see RabbitQueue for the rationale.
+     */
+    protected function newAmqpChannel(AMQPConnection $connection): AMQPChannel
+    {
+        return new AMQPChannel($connection);
     }
 
     /**
@@ -280,6 +322,8 @@ class ChannelPool
         $connectionId = spl_object_id($connection);
         unset($this->channelConnections[$channelId]);
 
+        $this->currentChannels = max(0, $this->currentChannels - 1);
+
         $remaining = max(0, ($this->connectionChannelCounts[$connectionId] ?? 1) - 1);
 
         if ($remaining > 0) {
@@ -335,11 +379,13 @@ class ChannelPool
     {
         $channelId = spl_object_id($channel);
 
-        // Only releases the connection back to the pool once no other
-        // channel sharing it remains (see unbindChannelFromConnection()).
-        $this->unbindChannelFromConnection($channelId);
+        unset($this->dirtyChannels[$channelId]);
 
-        $this->currentChannels--;
+        // Only releases the connection back to the pool once no other
+        // channel sharing it remains, and only decrements the channel counter
+        // for a channel this pool is still tracking (see
+        // unbindChannelFromConnection()).
+        $this->unbindChannelFromConnection($channelId);
     }
 
     /**
@@ -366,7 +412,6 @@ class ChannelPool
     private function performHealthCheck(): void
     {
         $healthyChannels = new SplQueue;
-        $removedCount = 0;
 
         while (! $this->availableChannels->isEmpty()) {
             $channel = $this->availableChannels->dequeue();
@@ -376,13 +421,9 @@ class ChannelPool
             } else {
                 $this->removeDeadChannel($channel);
                 $this->safeCloseChannel($channel);
-                $removedCount++;
             }
         }
 
         $this->availableChannels = $healthyChannels;
-
-        if ($removedCount > 0) {
-        }
     }
 }

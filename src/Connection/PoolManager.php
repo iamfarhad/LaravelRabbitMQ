@@ -19,12 +19,23 @@ class PoolManager
 
     private array $config;
 
-    public function __construct(array $config)
-    {
+    /**
+     * Collaborators are injectable so they can be substituted in tests without
+     * globally replacing ext-amqp's classes. Passing nothing keeps the previous
+     * behaviour of building them from the configuration.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    public function __construct(
+        array $config,
+        ?ConnectionFactory $connectionFactory = null,
+        ?ConnectionPool $connectionPool = null,
+        ?ChannelPool $channelPool = null
+    ) {
         $this->config = $config;
-        $this->connectionFactory = new ConnectionFactory($config);
-        $this->connectionPool = new ConnectionPool($this->connectionFactory, $config);
-        $this->channelPool = new ChannelPool($this->connectionPool, $config);
+        $this->connectionFactory = $connectionFactory ?? new ConnectionFactory($config);
+        $this->connectionPool = $connectionPool ?? new ConnectionPool($this->connectionFactory, $config);
+        $this->channelPool = $channelPool ?? new ChannelPool($this->connectionPool, $config);
     }
 
     /**
@@ -46,7 +57,20 @@ class PoolManager
     }
 
     /**
+     * Flag a channel as carrying state that cannot be reset (publisher confirm
+     * mode, an open transaction, a QoS prefetch) so it is retired rather than
+     * handed to the next borrower.
+     */
+    public function markChannelDirty(AMQPChannel $channel): void
+    {
+        $this->channelPool->markDirty($channel);
+    }
+
+    /**
      * Get a connection from the pool (for advanced use cases)
+     *
+     * Callers own the returned connection and MUST hand it back with
+     * releaseConnection(), or the pool will run out.
      *
      * @throws ConnectionException
      */
@@ -93,37 +117,40 @@ class PoolManager
      */
     public function getStats(): array
     {
+        $poolConfig = $this->config['pool'] ?? [];
+
         return [
             'connection_pool' => $this->connectionPool->getStats(),
             'channel_pool' => $this->channelPool->getStats(),
             'config' => [
-                'max_connections' => $this->config['pool']['max_connections'] ?? 10,
-                'min_connections' => $this->config['pool']['min_connections'] ?? 2,
-                'max_channels_per_connection' => $this->config['pool']['max_channels_per_connection'] ?? 100,
-                'max_retries' => $this->config['pool']['max_retries'] ?? 3,
-                'retry_delay' => $this->config['pool']['retry_delay'] ?? 1000,
-                'health_check_enabled' => $this->config['pool']['health_check_enabled'] ?? true,
-                'health_check_interval' => $this->config['pool']['health_check_interval'] ?? 30,
+                'max_connections' => (int) ($poolConfig['max_connections'] ?? 10),
+                'min_connections' => (int) ($poolConfig['min_connections'] ?? 2),
+                'max_channels_per_connection' => (int) ($poolConfig['max_channels_per_connection'] ?? 100),
+                'max_retries' => (int) ($poolConfig['max_retries'] ?? 3),
+                'retry_delay' => (int) ($poolConfig['retry_delay'] ?? 1000),
+                'health_check_enabled' => (bool) ($poolConfig['health_check_enabled'] ?? true),
+                'health_check_interval' => (int) ($poolConfig['health_check_interval'] ?? 30),
             ],
         ];
     }
 
     /**
-     * Check if pools are healthy
+     * Whether the pool can still serve work.
+     *
+     * A lazy pool legitimately sits at zero connections until its first use, so
+     * "fewer than min_connections" is not a fault on its own — that check used
+     * to report every idle worker as unhealthy. The pool is unhealthy only when
+     * it can neither hand out an idle connection nor open a new one.
      */
     public function isHealthy(): bool
     {
-        $stats = $this->getStats();
+        $stats = $this->connectionPool->getStats();
 
-        // Check if we have at least minimum connections
-        $connectionStats = $stats['connection_pool'];
-        $minConnections = $stats['config']['min_connections'];
-
-        if ($connectionStats['current_connections'] < $minConnections) {
-            return false;
+        if ($stats['available_connections'] > 0) {
+            return true;
         }
 
-        return true;
+        return $stats['current_connections'] < $stats['max_connections'];
     }
 
     /**

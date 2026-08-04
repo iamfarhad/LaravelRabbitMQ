@@ -39,6 +39,12 @@ abstract class TestCase extends Orchestra
     {
         // Setup the application configuration
         $app['config']->set('queue.default', 'rabbitmq');
+
+        // This suite tests the queue driver, not Laravel's failed-job store. A
+        // real provider would need a migrated database, and a provider that
+        // throws now legitimately blocks settlement (issue #37), which would
+        // show up as unrelated failures here.
+        $app['config']->set('queue.failed.driver', 'null');
         $app['config']->set('queue.connections.rabbitmq', [
             'driver' => 'rabbitmq',
             'queue' => env('RABBITMQ_QUEUE', 'default'),

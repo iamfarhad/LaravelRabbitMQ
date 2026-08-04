@@ -34,7 +34,9 @@ Use this when jobs should only be dispatched after open database transactions co
 
 Lazy connection mode delays creating AMQP connections until the first queue operation. This is useful for CLI commands, Octane workers, and apps that boot the queue connection without always publishing or consuming jobs.
 
-The pool reads the existing host-level `lazy` option and pool-level `lazy` option when present.
+The pool reads the pool-level `lazy` option, falling back to the host-level one. **Both default to `true`.** Eager initialisation opens `pool.min_connections` sockets as a side effect of merely resolving the queue connection, which happens in every artisan one-shot and every request that never publishes anything.
+
+Set `RABBITMQ_LAZY_POOL=false` to pre-warm the pool in long-lived worker processes, where the first job should not pay for the connect.
 
 ## Native network transport
 

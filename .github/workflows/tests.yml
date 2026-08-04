@@ -18,6 +18,11 @@ jobs:
 
     strategy:
       fail-fast: false
+      # Laravel 10.x and 11.x are declared in composer.json but cannot be built
+      # here: every released version of both lines is currently flagged by
+      # Composer's security-advisory policy, so `composer update` refuses to
+      # resolve them. Installing them anyway would mean testing against
+      # framework releases with known advisories. See SUPPORT.md.
       matrix:
         include:
           - php: '8.2'
@@ -113,6 +118,10 @@ jobs:
       - name: Run formatting check
         if: matrix.dependency-version != 'prefer-lowest'
         run: composer format-test
+
+      - name: Run static analysis
+        if: matrix.dependency-version != 'prefer-lowest'
+        run: composer analyse
 
       - name: Clear PHPUnit cache
         run: |

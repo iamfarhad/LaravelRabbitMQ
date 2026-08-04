@@ -6,24 +6,20 @@ namespace iamfarhad\LaravelRabbitMQ\Tests\Unit\Connection;
 
 use AMQPChannel;
 use AMQPConnection;
-use AMQPConnectionException;
 use iamfarhad\LaravelRabbitMQ\Connection\ChannelPool;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionFactory;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionPool;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
-use Mockery;
-use Mockery\MockInterface;
-use PHPUnit\Framework\Attributes\PreserveGlobalState;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
 /**
- * Each test runs in its own process because Mockery `overload:` mocks can
- * only be defined once per process. Expectations are set on the overload
- * template, which applies them to every instance the pool creates.
+ * Exercises the pool against a real broker: PoolManager builds its own
+ * collaborators, and real pooling behaviour (liveness, multiplexing, exhaustion)
+ * is exactly what these assertions are about.
+ *
+ * Connection details come from the same environment variables as the rest of the
+ * suite, so this runs wherever a broker is available.
  */
-#[RunTestsInSeparateProcesses]
-#[PreserveGlobalState(false)]
 class PoolManagerTest extends UnitTestCase
 {
     private array $config;
@@ -31,19 +27,21 @@ class PoolManagerTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->skipIfAmqpExtensionLoaded();
 
         $this->config = [
             'hosts' => [
-                'host' => 'localhost',
-                'port' => 5672,
-                'user' => 'guest',
-                'password' => 'guest',
-                'vhost' => '/',
+                'host' => env('RABBITMQ_HOST', '127.0.0.1'),
+                'port' => (int) env('RABBITMQ_PORT', 5672),
+                'user' => env('RABBITMQ_USER', 'guest'),
+                'password' => env('RABBITMQ_PASSWORD', 'guest'),
+                'vhost' => env('RABBITMQ_VHOST', '/'),
             ],
             'pool' => [
                 'max_connections' => 10,
                 'min_connections' => 2,
+                // Eager initialisation is opt-in since 1.5; the bookkeeping
+                // tests below are written against a pre-warmed pool.
+                'lazy' => false,
                 'max_channels_per_connection' => 100,
                 'max_retries' => 3,
                 'retry_delay' => 1000,
@@ -53,47 +51,8 @@ class PoolManagerTest extends UnitTestCase
         ];
     }
 
-    /**
-     * Overload template applied to every `new AMQPConnection()` the pool makes.
-     */
-    private function mockConnectionTemplate(): MockInterface
-    {
-        $template = Mockery::mock('overload:'.AMQPConnection::class);
-        $template->shouldReceive('__construct');
-        $template->shouldReceive('connect');
-        $template->shouldReceive('isConnected')->andReturn(true);
-        $template->shouldReceive('disconnect');
-
-        return $template;
-    }
-
-    /**
-     * Overload template applied to every `new AMQPChannel()` the pool makes.
-     */
-    private function mockChannelTemplate(): MockInterface
-    {
-        // A plain Mockery mock of AMQPConnection would collide with the
-        // overload template's generated class, so use a simple stand-in.
-        $connectionForChannel = new class
-        {
-            public function isConnected(): bool
-            {
-                return true;
-            }
-        };
-
-        $template = Mockery::mock('overload:'.AMQPChannel::class);
-        $template->shouldReceive('__construct');
-        $template->shouldReceive('isConnected')->andReturn(true);
-        $template->shouldReceive('getConnection')->andReturn($connectionForChannel);
-        $template->shouldReceive('close');
-
-        return $template;
-    }
-
     public function testCreatesPoolManagerSuccessfully(): void
     {
-        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
 
@@ -102,8 +61,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testGetsChannelFromPool(): void
     {
-        $this->mockConnectionTemplate();
-        $this->mockChannelTemplate();
 
         $poolManager = new PoolManager($this->config);
         $channel = $poolManager->getChannel();
@@ -113,8 +70,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testReleasesChannelToPool(): void
     {
-        $this->mockConnectionTemplate();
-        $this->mockChannelTemplate();
 
         $poolManager = new PoolManager($this->config);
 
@@ -128,7 +83,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testGetsConnectionFromPool(): void
     {
-        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $connection = $poolManager->getConnection();
@@ -138,7 +92,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testReleasesConnectionToPool(): void
     {
-        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
 
@@ -154,8 +107,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testClosesSpecificChannel(): void
     {
-        $this->mockConnectionTemplate();
-        $this->mockChannelTemplate();
 
         $poolManager = new PoolManager($this->config);
 
@@ -168,7 +119,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testClosesSpecificConnection(): void
     {
-        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
 
@@ -181,7 +131,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testClosesAllPools(): void
     {
-        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $poolManager->closeAll();
@@ -193,7 +142,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testReturnsComprehensiveStats(): void
     {
-        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $stats = $poolManager->getStats();
@@ -213,7 +161,6 @@ class PoolManagerTest extends UnitTestCase
 
     public function testChecksPoolHealth(): void
     {
-        $this->mockConnectionTemplate();
 
         $poolManager = new PoolManager($this->config);
         $isHealthy = $poolManager->isHealthy();
@@ -223,24 +170,32 @@ class PoolManagerTest extends UnitTestCase
 
     public function testDetectsUnhealthyPool(): void
     {
-        $this->config['pool']['min_connections'] = 5;
-        $this->config['pool']['retry_delay'] = 1; // keep the failing retries fast
-
-        // Only the first two connection attempts succeed, leaving the pool
-        // below its minimum size.
-        $template = Mockery::mock('overload:'.AMQPConnection::class);
-        $template->shouldReceive('__construct');
-        $template->shouldReceive('connect')->andReturnUsing(function (): void {
-            static $attempts = 0;
-            if (++$attempts > 2) {
-                throw new AMQPConnectionException('Connection failed');
-            }
-        });
+        // A pool is unhealthy when it can neither hand out an idle connection
+        // nor open another one. Sitting below min_connections is not a fault on
+        // its own — that is the normal resting state of a lazy pool.
+        $this->config['pool']['max_connections'] = 1;
+        $this->config['pool']['min_connections'] = 0;
+        $this->config['pool']['lazy'] = true;
 
         $poolManager = new PoolManager($this->config);
-        $isHealthy = $poolManager->isHealthy();
 
-        $this->assertFalse($isHealthy);
+        $this->assertTrue($poolManager->isHealthy(), 'An empty lazy pool can still open a connection.');
+
+        // Check the only permitted connection out and never return it.
+        $poolManager->getConnection();
+
+        $this->assertFalse($poolManager->isHealthy());
+    }
+
+    public function testLazyPoolBelowMinimumConnectionsIsStillHealthy(): void
+    {
+        $this->config['pool']['min_connections'] = 5;
+        $this->config['pool']['lazy'] = true;
+
+        $poolManager = new PoolManager($this->config);
+
+        $this->assertSame(0, $poolManager->getStats()['connection_pool']['current_connections']);
+        $this->assertTrue($poolManager->isHealthy());
     }
 
     public function testProvidesAccessToIndividualPools(): void

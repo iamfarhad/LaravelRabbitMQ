@@ -41,6 +41,25 @@ class ConnectionFactoryTest extends UnitTestCase
 
         $this->assertSame(5671, $config['port']);
         $this->assertTrue($config['ssl']);
-        $this->assertSame('ssl', $config['connection_name']);
+
+        // connection_name is the label RabbitMQ shows in the management UI, not
+        // the transport: overwriting it with "ssl" made every TLS connection
+        // anonymous there.
+        $this->assertArrayNotHasKey('connection_name', $config);
+    }
+
+    public function testConfiguredConnectionNameIsUsedAsTheBrokerSideLabel(): void
+    {
+        $factory = new ConnectionFactory([
+            'connection_name' => 'checkout-api',
+            'hosts' => [
+                'host' => 'rabbitmq.local',
+                'secure' => true,
+            ],
+        ]);
+
+        $config = $factory->buildConnectionConfigForTesting();
+
+        $this->assertSame('checkout-api', $config['connection_name']);
     }
 }

@@ -6,13 +6,19 @@ namespace iamfarhad\LaravelRabbitMQ\Support;
 
 use AMQPChannel;
 use AMQPChannelException;
-use AMQPQueueException;
+use AMQPException;
 use Exception;
 
 class PublisherConfirms
 {
     private bool $confirmMode = false;
 
+    /**
+     * Correlation IDs of publishes awaiting a broker ACK, keyed by the channel
+     * publish sequence number the broker will confirm them with.
+     *
+     * @var array<int, string>
+     */
     private array $pendingConfirms = [];
 
     private int $nextPublishSeqNo = 1;
@@ -23,6 +29,12 @@ class PublisherConfirms
      * so a NACK can only ever fail the wait it was captured for.
      */
     private ?string $lastNack = null;
+
+    /**
+     * A basic.return observed for a mandatory publish, i.e. the broker had
+     * nowhere to route the message. Consumable in the same way as $lastNack.
+     */
+    private ?string $lastReturn = null;
 
     private bool $callbacksRegistered = false;
 
@@ -56,6 +68,10 @@ class PublisherConfirms
 
     /**
      * Disable publisher confirms mode
+     *
+     * Note that AMQP provides no way to leave confirm mode on a live channel:
+     * this only resets local bookkeeping. The channel itself stays in confirm
+     * mode, which is why the pool retires it rather than reusing it.
      */
     public function disable(): void
     {
@@ -63,6 +79,7 @@ class PublisherConfirms
         $this->pendingConfirms = [];
         $this->nextPublishSeqNo = 1;
         $this->lastNack = null;
+        $this->lastReturn = null;
     }
 
     /**
@@ -76,17 +93,28 @@ class PublisherConfirms
 
         try {
             $this->channel->waitForConfirm($this->timeout);
-        } catch (AMQPChannelException|AMQPQueueException $e) {
-            // Never let a NACK captured during this wait survive into the
-            // next one; the failure is already being reported here.
+        } catch (AMQPException $e) {
+            // Never let a NACK or return captured during this wait survive into
+            // the next one; the failure is already being reported here.
             $this->takeLastNack();
+            $this->takeLastReturn();
+            $this->clearPending();
 
             throw new Exception('Failed to wait for confirms: '.$e->getMessage(), 0, $e);
         }
 
-        $nack = $this->takeLastNack();
+        // An unroutable mandatory publish is the failure that publisher confirms
+        // alone cannot surface: RabbitMQ ACKs it after returning it.
+        if (($return = $this->takeLastReturn()) !== null) {
+            $this->takeLastNack();
+            $this->clearPending();
 
-        if ($nack !== null) {
+            throw new Exception('Message was returned as unroutable by broker: '.$return);
+        }
+
+        if (($nack = $this->takeLastNack()) !== null) {
+            $this->clearPending();
+
             throw new Exception('Message was nacked by broker: '.$nack);
         }
 
@@ -110,7 +138,11 @@ class PublisherConfirms
     }
 
     /**
-     * Register a pending confirm
+     * Register a pending confirm.
+     *
+     * Must be called once per publish on this channel while confirm mode is on,
+     * immediately before the publish, so the local sequence number stays in step
+     * with the broker's.
      */
     public function registerPendingConfirm(string $correlationId): int
     {
@@ -158,6 +190,7 @@ class PublisherConfirms
     {
         $this->pendingConfirms = [];
         $this->lastNack = null;
+        $this->lastReturn = null;
     }
 
     /**
@@ -169,8 +202,16 @@ class PublisherConfirms
     }
 
     /**
-     * Install the ACK/NACK callbacks exactly once per instance, so repeated
-     * enable()/disable() cycles never stack conflicting handlers.
+     * Whether an unroutable-message return is waiting to be reported.
+     */
+    public function hasPendingReturn(): bool
+    {
+        return $this->lastReturn !== null;
+    }
+
+    /**
+     * Install the ACK/NACK/return callbacks exactly once per instance, so
+     * repeated enable()/disable() cycles never stack conflicting handlers.
      */
     private function registerConfirmCallbacks(): void
     {
@@ -181,6 +222,17 @@ class PublisherConfirms
         $this->channel->setConfirmCallback(
             fn (int $deliveryTag, bool $multiple = false): bool => $this->handleAck($deliveryTag, $multiple),
             fn (int $deliveryTag, bool $multiple = false, bool $requeue = false): bool => $this->handleNack($deliveryTag, $multiple)
+        );
+
+        $this->channel->setReturnCallback(
+            fn (
+                int $replyCode,
+                string $replyText,
+                string $exchange,
+                string $routingKey,
+                $properties = null,
+                string $body = ''
+            ): bool => $this->handleReturn($replyCode, $replyText, $exchange, $routingKey)
         );
 
         $this->callbacksRegistered = true;
@@ -212,23 +264,52 @@ class PublisherConfirms
         return false;
     }
 
+    /**
+     * A returned message ends the wait for the same reason a NACK does.
+     */
+    private function handleReturn(int $replyCode, string $replyText, string $exchange, string $routingKey): bool
+    {
+        $this->lastReturn = sprintf(
+            '%d %s (exchange [%s], routing key [%s])',
+            $replyCode,
+            $replyText,
+            $exchange === '' ? '(default)' : $exchange,
+            $routingKey
+        );
+
+        return false;
+    }
+
+    /**
+     * @return array<int, string|null>
+     */
     private function confirmDelivery(int $deliveryTag, bool $multiple): array
     {
-        if (! $multiple) {
+        if ($multiple) {
+            $confirmed = [];
+
+            foreach (array_keys($this->pendingConfirms) as $seqNo) {
+                if ($seqNo > $deliveryTag) {
+                    continue;
+                }
+
+                $confirmed[] = $this->confirmMessage($seqNo);
+            }
+
+            return $confirmed;
+        }
+
+        if (isset($this->pendingConfirms[$deliveryTag])) {
             return [$this->confirmMessage($deliveryTag)];
         }
 
-        $confirmed = [];
+        // A tag we never registered — a raw publish elsewhere on this channel
+        // shifted the broker's sequence. The broker still confirms in publish
+        // order, so resolve the oldest outstanding entry instead of leaving the
+        // ledger permanently unbalanced and deadlocking every later wait.
+        $oldest = array_key_first($this->pendingConfirms);
 
-        foreach (array_keys($this->pendingConfirms) as $seqNo) {
-            if ($seqNo > $deliveryTag) {
-                continue;
-            }
-
-            $confirmed[] = $this->confirmMessage($seqNo);
-        }
-
-        return $confirmed;
+        return $oldest === null ? [] : [$this->confirmMessage($oldest)];
     }
 
     /**
@@ -240,5 +321,13 @@ class PublisherConfirms
         $this->lastNack = null;
 
         return $nack;
+    }
+
+    private function takeLastReturn(): ?string
+    {
+        $return = $this->lastReturn;
+        $this->lastReturn = null;
+
+        return $return;
     }
 }

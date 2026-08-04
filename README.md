@@ -136,16 +136,24 @@ For production, start with explicit heartbeat, timeout, retry, and health-check 
 
 ```env
 QUEUE_CONNECTION=rabbitmq
-RABBITMQ_CONSUME_MODE=consume
-RABBITMQ_HEARTBEAT_CONNECTION=30
+RABBITMQ_CONSUME_MODE=poll
+RABBITMQ_HEARTBEAT_CONNECTION=60
 RABBITMQ_CONNECT_TIMEOUT=10
-RABBITMQ_READ_TIMEOUT=30
+RABBITMQ_READ_TIMEOUT=120
 RABBITMQ_WRITE_TIMEOUT=30
 RABBITMQ_MAX_RETRIES=3
 RABBITMQ_RETRY_DELAY=1000
 RABBITMQ_HEALTH_CHECK_ENABLED=true
 RABBITMQ_HEALTH_CHECK_INTERVAL=30
 ```
+
+Set `RABBITMQ_READ_TIMEOUT` to at least twice the heartbeat, so a half-open TCP
+connection cannot hang a worker indefinitely while still leaving room for
+heartbeat frames.
+
+With `RABBITMQ_CONSUME_MODE=consume`, leave `RABBITMQ_READ_TIMEOUT=0` instead: a
+non-zero read timeout aborts a blocking `basic_consume` whenever the queue sits
+idle for that long.
 
 See [production deployment](docs/production.md) for Supervisor, systemd, Docker Compose, Kubernetes, prefetch, publisher confirms, quorum queues, and dead-letter routing examples.
 

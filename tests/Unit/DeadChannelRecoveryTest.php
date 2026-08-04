@@ -9,18 +9,17 @@ use AMQPChannelException;
 use AMQPConnection;
 use AMQPConnectionException;
 use AMQPEnvelope;
-use iamfarhad\LaravelRabbitMQ\Connection\ChannelPool;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionPool;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableChannelPool;
+use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableRabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Mockery;
-use PHPUnit\Framework\Attributes\PreserveGlobalState;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
 /**
  * Regression tests for issue #23: "Could not create queue. No channel
@@ -36,14 +35,11 @@ use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
  * Each test runs in its own process because Mockery `overload:` mocks can
  * only be defined once per process.
  */
-#[RunTestsInSeparateProcesses]
-#[PreserveGlobalState(false)]
 class DeadChannelRecoveryTest extends UnitTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        $this->skipIfAmqpExtensionLoaded();
     }
 
     protected function tearDown(): void
@@ -59,6 +55,28 @@ class DeadChannelRecoveryTest extends UnitTestCase
         Container::setInstance($container);
     }
 
+    /**
+     * Build the driver with its ext-amqp construction seams pointed at the
+     * supplied doubles, so these run with the real extension loaded.
+     */
+    private function makeQueue(
+        PoolManager $poolManager,
+        ?\AMQPQueue $amqpQueue = null,
+        ?\AMQPExchange $amqpExchange = null
+    ): TestableRabbitQueue {
+        $queue = TestableRabbitQueue::make($poolManager, 'default');
+
+        if ($amqpQueue !== null) {
+            $queue->useQueueFactory(fn (): \AMQPQueue => $amqpQueue);
+        }
+
+        if ($amqpExchange !== null) {
+            $queue->useExchangeFactory(fn (): \AMQPExchange => $amqpExchange);
+        }
+
+        return $queue;
+    }
+
     public function testGetChannelReplacesDeadCachedChannel(): void
     {
         $deadChannel = Mockery::mock(AMQPChannel::class);
@@ -70,7 +88,7 @@ class DeadChannelRecoveryTest extends UnitTestCase
         $poolManager->shouldReceive('getChannel')->twice()->andReturn($deadChannel, $freshChannel);
         $poolManager->shouldReceive('releaseChannel')->once()->with($deadChannel);
 
-        $queue = new RabbitQueue($poolManager, 'default');
+        $queue = $this->makeQueue($poolManager, null, null);
 
         $this->assertSame($deadChannel, $queue->getChannel());
         $this->assertSame($freshChannel, $queue->getChannel());
@@ -88,7 +106,7 @@ class DeadChannelRecoveryTest extends UnitTestCase
         $poolManager = Mockery::mock(PoolManager::class);
         $poolManager->shouldReceive('getChannel')->once()->andReturn($channel);
 
-        $queue = new RabbitQueue($poolManager, 'default');
+        $queue = $this->makeQueue($poolManager, null, null);
 
         $this->assertSame($channel, $queue->getChannel());
         $this->assertSame($channel, $queue->getChannel());
@@ -109,24 +127,28 @@ class DeadChannelRecoveryTest extends UnitTestCase
 
         $declareCalls = 0;
 
-        // First construction fails exactly the way ext-amqp fails on a channel
-        // whose connection died; the retry must land on the fresh channel.
-        $queueTemplate = Mockery::mock('overload:'.\AMQPQueue::class);
-        $queueTemplate->shouldReceive('__construct')->andReturnUsing(function (): void {
-            static $constructions = 0;
-            if ($constructions++ === 0) {
-                throw new AMQPChannelException('Could not create queue. No channel available.');
-            }
-        });
-        $queueTemplate->shouldReceive('setName')->with('orders');
-        $queueTemplate->shouldReceive('setFlags');
-        $queueTemplate->shouldReceive('declareQueue')->andReturnUsing(function () use (&$declareCalls): int {
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName')->with('orders');
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('declareQueue')->andReturnUsing(function () use (&$declareCalls): int {
             $declareCalls++;
 
             return 0;
         });
 
-        $queue = new RabbitQueue($poolManager, 'default');
+        // First construction fails exactly the way ext-amqp fails on a channel
+        // whose connection died; the retry must land on the fresh channel.
+        $constructions = 0;
+
+        $queue = TestableRabbitQueue::make($poolManager, 'default')
+            ->useQueueFactory(function () use ($amqpQueue, &$constructions): \AMQPQueue {
+                if ($constructions++ === 0) {
+                    throw new AMQPChannelException('Could not create queue. No channel available.');
+                }
+
+                return $amqpQueue;
+            });
+
         $queue->declareQueue('orders');
 
         $this->assertSame(1, $declareCalls);
@@ -144,14 +166,13 @@ class DeadChannelRecoveryTest extends UnitTestCase
 
         // 403 ACCESS_REFUSED: a semantic broker error a new channel would only
         // repeat, so it must surface immediately instead of being retried.
-        $queueTemplate = Mockery::mock('overload:'.\AMQPQueue::class);
-        $queueTemplate->shouldReceive('__construct');
-        $queueTemplate->shouldReceive('setName');
-        $queueTemplate->shouldReceive('setFlags');
-        $queueTemplate->shouldReceive('declareQueue')
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName');
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('declareQueue')
             ->andThrow(new AMQPChannelException('ACCESS_REFUSED', 403));
 
-        $queue = new RabbitQueue($poolManager, 'default');
+        $queue = $this->makeQueue($poolManager, $amqpQueue, null);
 
         $this->expectException(AMQPChannelException::class);
         $this->expectExceptionCode(403);
@@ -175,7 +196,7 @@ class DeadChannelRecoveryTest extends UnitTestCase
         $job->shouldReceive('getRabbitMQMessage')->andReturn($envelope);
         $job->shouldReceive('getQueue')->andReturn('default');
 
-        $queue = new RabbitQueue($poolManager, 'default');
+        $queue = $this->makeQueue($poolManager, null, null);
         $queue->getChannel();
 
         // The delivery tag only exists on the dead channel: ack must release
@@ -190,7 +211,8 @@ class DeadChannelRecoveryTest extends UnitTestCase
             $this->assertStringContainsString('Cannot ack delivery on queue [default]', $exception->getMessage());
         }
 
-        $cachedChannel = new \ReflectionProperty($queue, 'amqpChannel');
+        // $amqpChannel is private to RabbitQueue, so reflect on the declaring class.
+        $cachedChannel = new \ReflectionProperty(RabbitQueue::class, 'amqpChannel');
 
         $this->assertNull($cachedChannel->getValue($queue));
     }
@@ -207,13 +229,23 @@ class DeadChannelRecoveryTest extends UnitTestCase
         $connectionPool->shouldReceive('releaseConnection')->once()->with($firstConnection);
 
         // Alive when released back to the pool, dead by the time it is
-        // requested again — the exact shape of an idle disconnect.
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
-        $channelTemplate->shouldReceive('isConnected')->andReturn(true, false);
-        $channelTemplate->shouldReceive('getConnection')->andReturn($firstConnection);
+        // requested again — the exact shape of an idle disconnect. The
+        // replacement has to be a genuinely different channel object.
+        $dying = Mockery::mock(AMQPChannel::class);
+        $dying->shouldReceive('isConnected')->andReturn(true, false);
+        $dying->shouldReceive('getConnection')->andReturn($firstConnection);
+        $dying->shouldReceive('close')->andReturnNull();
 
-        $pool = new ChannelPool($connectionPool, ['pool' => ['health_check_enabled' => false]]);
+        $replacement = Mockery::mock(AMQPChannel::class);
+        $replacement->shouldReceive('isConnected')->andReturn(true);
+        $replacement->shouldReceive('getConnection')->andReturn($secondConnection);
+
+        $channels = [$dying, $replacement];
+
+        $pool = TestableChannelPool::make($connectionPool, ['pool' => ['health_check_enabled' => false]])
+            ->useChannelFactory(function () use (&$channels): AMQPChannel {
+                return array_shift($channels);
+            });
 
         $firstChannel = $pool->getChannel();
         $pool->releaseChannel($firstChannel);
@@ -234,10 +266,9 @@ class DeadChannelRecoveryTest extends UnitTestCase
         $connectionPool = Mockery::mock(ConnectionPool::class);
         $connectionPool->shouldReceive('getConnection')->twice()->andReturn($deadConnection, $freshConnection);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
 
-        $pool = new ChannelPool($connectionPool, ['pool' => ['health_check_enabled' => false]]);
+        $pool = TestableChannelPool::make($connectionPool, ['pool' => ['health_check_enabled' => false]]);
 
         $pool->getChannel();
         $pool->getChannel();
@@ -256,15 +287,17 @@ class DeadChannelRecoveryTest extends UnitTestCase
 
         // A pooled connection can die between the liveness check and channel
         // creation; the pool must retry once on a fresh connection.
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct')->andReturnUsing(function (): void {
-            static $constructions = 0;
-            if ($constructions++ === 0) {
-                throw new AMQPConnectionException('a socket error occurred');
-            }
-        });
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
+        $attempts = 0;
 
-        $pool = new ChannelPool($connectionPool, ['pool' => ['health_check_enabled' => false]]);
+        $pool = TestableChannelPool::make($connectionPool, ['pool' => ['health_check_enabled' => false]])
+            ->useChannelFactory(function () use ($amqpChannel, &$attempts): AMQPChannel {
+                if ($attempts++ === 0) {
+                    throw new AMQPConnectionException('Server connection error');
+                }
+
+                return $amqpChannel;
+            });
 
         $channel = $pool->getChannel();
 
@@ -286,12 +319,27 @@ class DeadChannelRecoveryTest extends UnitTestCase
         // Two channels multiplexed onto one connection; both are alive when
         // released and both are dead once the connection is gone. A single
         // getChannel() call must skip past every corpse.
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
-        $channelTemplate->shouldReceive('isConnected')->andReturn(true, false);
-        $channelTemplate->shouldReceive('getConnection')->andReturn($firstConnection);
+        $makeDying = function () use ($firstConnection): AMQPChannel {
+            $channel = Mockery::mock(AMQPChannel::class);
+            // Alive for the liveness check on release, dead for the one on the
+            // next acquisition.
+            $channel->shouldReceive('isConnected')->andReturn(true, false);
+            $channel->shouldReceive('getConnection')->andReturn($firstConnection);
+            $channel->shouldReceive('close')->andReturnNull();
 
-        $pool = new ChannelPool($connectionPool, ['pool' => ['health_check_enabled' => false]]);
+            return $channel;
+        };
+
+        $replacementChannel = Mockery::mock(AMQPChannel::class);
+        $replacementChannel->shouldReceive('isConnected')->andReturn(true);
+        $replacementChannel->shouldReceive('getConnection')->andReturn($secondConnection);
+
+        $channels = [$makeDying(), $makeDying(), $replacementChannel];
+
+        $pool = TestableChannelPool::make($connectionPool, ['pool' => ['health_check_enabled' => false]])
+            ->useChannelFactory(function () use (&$channels): AMQPChannel {
+                return array_shift($channels);
+            });
 
         $firstChannel = $pool->getChannel();
         $secondChannel = $pool->getChannel();

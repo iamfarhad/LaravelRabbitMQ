@@ -10,18 +10,15 @@ use AMQPConnection;
 use iamfarhad\LaravelRabbitMQ\Connection\ChannelPool;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionPool;
 use iamfarhad\LaravelRabbitMQ\Exceptions\QueueException;
+use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableChannelPool;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Mockery;
-use PHPUnit\Framework\Attributes\PreserveGlobalState;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
 /**
- * Each test runs in its own process because Mockery `overload:` mocks can
- * only be defined once per process. Expectations are set on the overload
- * template, which applies them to every instance `new AMQPChannel()` creates.
+ * Channel creation is redirected through TestableChannelPool's factory seam, so
+ * these run with the real ext-amqp loaded — which is the only configuration the
+ * package supports.
  */
-#[RunTestsInSeparateProcesses]
-#[PreserveGlobalState(false)]
 class ChannelPoolTest extends UnitTestCase
 {
     private array $config;
@@ -31,7 +28,6 @@ class ChannelPoolTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->skipIfAmqpExtensionLoaded();
 
         $this->config = [
             'pool' => [
@@ -45,7 +41,7 @@ class ChannelPoolTest extends UnitTestCase
 
     public function testCreatesChannelPoolSuccessfully(): void
     {
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config);
 
         $this->assertInstanceOf(ChannelPool::class, $pool);
     }
@@ -58,10 +54,10 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->andReturn($mockConnection);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
 
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(fn (): AMQPChannel => $amqpChannel);
         $channel = $pool->getChannel();
 
         $this->assertInstanceOf(AMQPChannel::class, $channel);
@@ -77,12 +73,12 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->andReturn($mockConnection);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
-        $channelTemplate->shouldReceive('isConnected')->andReturn(true);
-        $channelTemplate->shouldReceive('getConnection')->andReturn($mockConnection);
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
+        $amqpChannel->shouldReceive('isConnected')->andReturn(true);
+        $amqpChannel->shouldReceive('getConnection')->andReturn($mockConnection);
 
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(fn (): AMQPChannel => $amqpChannel);
 
         // Get channel first time
         $channel1 = $pool->getChannel();
@@ -110,11 +106,10 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->with($mockConnection1);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct')
-            ->andThrow(new AMQPChannelException('Channel creation failed'));
-
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(function (): AMQPChannel {
+                throw new AMQPChannelException('Channel creation failed');
+            });
 
         $this->expectException(QueueException::class);
         $this->expectExceptionMessage('Failed to create AMQP channel');
@@ -131,12 +126,12 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->andReturn($mockConnection);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
-        $channelTemplate->shouldReceive('isConnected')->andReturn(true);
-        $channelTemplate->shouldReceive('getConnection')->andReturn($mockConnection);
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
+        $amqpChannel->shouldReceive('isConnected')->andReturn(true);
+        $amqpChannel->shouldReceive('getConnection')->andReturn($mockConnection);
 
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(fn (): AMQPChannel => $amqpChannel);
 
         $channel = $pool->getChannel();
         $statsAfterGet = $pool->getStats();
@@ -164,13 +159,13 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->with($mockConnection);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
-        $channelTemplate->shouldReceive('isConnected')->andReturn(true);
-        $channelTemplate->shouldReceive('getConnection')->andReturn($mockConnection);
-        $channelTemplate->shouldReceive('close');
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
+        $amqpChannel->shouldReceive('isConnected')->andReturn(true);
+        $amqpChannel->shouldReceive('getConnection')->andReturn($mockConnection);
+        $amqpChannel->shouldReceive('close');
 
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(fn (): AMQPChannel => $amqpChannel);
 
         $channel = $pool->getChannel();
         $pool->closeChannel($channel);
@@ -188,13 +183,13 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->andReturn($mockConnection);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
-        $channelTemplate->shouldReceive('isConnected')->andReturn(true);
-        $channelTemplate->shouldReceive('getConnection')->andReturn($mockConnection);
-        $channelTemplate->shouldReceive('close');
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
+        $amqpChannel->shouldReceive('isConnected')->andReturn(true);
+        $amqpChannel->shouldReceive('getConnection')->andReturn($mockConnection);
+        $amqpChannel->shouldReceive('close');
 
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(fn (): AMQPChannel => $amqpChannel);
 
         $pool->getChannel();
         $pool->closeAll();
@@ -206,7 +201,7 @@ class ChannelPoolTest extends UnitTestCase
 
     public function testReturnsCorrectStats(): void
     {
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config);
         $stats = $pool->getStats();
 
         $this->assertEquals(100, $stats['max_channels_per_connection']);
@@ -231,13 +226,22 @@ class ChannelPoolTest extends UnitTestCase
             ->once()
             ->with($mockConnection1);
 
-        // Alive when released, dead when requested again.
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
-        $channelTemplate->shouldReceive('isConnected')->andReturn(true, false);
-        $channelTemplate->shouldReceive('getConnection')->andReturn($mockConnection1);
+        // First channel: alive when released, dead when requested again.
+        $deadChannel = Mockery::mock(AMQPChannel::class);
+        $deadChannel->shouldReceive('isConnected')->andReturn(true, false);
+        $deadChannel->shouldReceive('getConnection')->andReturn($mockConnection1);
+        $deadChannel->shouldReceive('close')->andReturnNull();
 
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $freshChannel = Mockery::mock(AMQPChannel::class);
+        $freshChannel->shouldReceive('isConnected')->andReturn(true);
+        $freshChannel->shouldReceive('getConnection')->andReturn($mockConnection2);
+
+        $channels = [$deadChannel, $freshChannel];
+
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(function () use (&$channels): AMQPChannel {
+                return array_shift($channels);
+            });
 
         // Get first channel and release it
         $channel1 = $pool->getChannel();
@@ -265,10 +269,10 @@ class ChannelPoolTest extends UnitTestCase
             ->twice()
             ->andReturn($mockConnection1, $mockConnection2);
 
-        $channelTemplate = Mockery::mock('overload:'.AMQPChannel::class);
-        $channelTemplate->shouldReceive('__construct');
+        $amqpChannel = Mockery::mock(AMQPChannel::class);
 
-        $pool = new ChannelPool($this->mockConnectionPool, $this->config);
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(fn (): AMQPChannel => $amqpChannel);
 
         $pool->getChannel();
         $pool->getChannel();

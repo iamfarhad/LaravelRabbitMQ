@@ -8,18 +8,15 @@ use AMQPConnection;
 use AMQPConnectionException;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionFactory;
 use iamfarhad\LaravelRabbitMQ\Exceptions\ConnectionException;
+use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableConnectionFactory;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Mockery;
-use PHPUnit\Framework\Attributes\PreserveGlobalState;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
 /**
- * Each test runs in its own process: this file mixes Mockery `overload:`
- * mocks with plain AMQPConnection mocks, which collide when defined in the
- * same process.
+ * Connection creation is redirected through TestableConnectionFactory's seam, so
+ * retry and failover behaviour is exercised without a broker and with the real
+ * ext-amqp loaded.
  */
-#[RunTestsInSeparateProcesses]
-#[PreserveGlobalState(false)]
 class ConnectionFactoryTest extends UnitTestCase
 {
     private array $config;
@@ -27,7 +24,6 @@ class ConnectionFactoryTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->skipIfAmqpExtensionLoaded();
 
         $this->config = [
             'hosts' => [
@@ -74,18 +70,19 @@ class ConnectionFactoryTest extends UnitTestCase
     {
         $this->config['pool']['max_retries'] = 2;
         $this->config['pool']['retry_delay'] = 1; // keep the failing retry fast
-        $factory = new ConnectionFactory($this->config);
 
         $connectCalls = 0;
 
-        // Mock AMQPConnection to fail first time, succeed second time
-        $mockConnection = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnection->shouldReceive('__construct');
+        // Fails to connect the first time, succeeds on the retry.
+        $mockConnection = Mockery::mock(AMQPConnection::class);
         $mockConnection->shouldReceive('connect')->andReturnUsing(function () use (&$connectCalls): void {
             if (++$connectCalls === 1) {
                 throw new AMQPConnectionException('Connection failed');
             }
         });
+
+        $factory = (new TestableConnectionFactory($this->config))
+            ->useConnectionFactory(fn (): AMQPConnection => $mockConnection);
 
         $connection = $factory->createConnection();
 
@@ -100,8 +97,7 @@ class ConnectionFactoryTest extends UnitTestCase
         $factory = new ConnectionFactory($this->config);
 
         // Mock AMQPConnection to always fail
-        $mockConnection = Mockery::mock('overload:'.AMQPConnection::class);
-        $mockConnection->shouldReceive('__construct');
+        $mockConnection = Mockery::mock(AMQPConnection::class);
         $mockConnection->shouldReceive('connect')
             ->andThrow(new AMQPConnectionException('Connection failed'));
 

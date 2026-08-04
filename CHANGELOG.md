@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 💥 Fixed — reported issues
+
+- **A terminal failure could be discarded before `failed_jobs` was written** ([#37](https://github.com/iamfarhad/LaravelRabbitMQ/issues/37)). `Job::fail()` calls `markAsFailed()` first and dispatches `JobFailed` last; the authoritative `failed_jobs` write is itself a `JobFailed` listener. Rejecting inside `markAsFailed()` therefore removed the delivery from the queue *before* — or instead of — persisting the record explaining why it died. Settlement now happens in a `JobFailed` listener that is appended when the failure begins, so it always runs after the failer listener: if the failed-job provider throws, the dispatch aborts before reaching it, the delivery stays unresolved, and the broker redelivers. The `failed.ownership=exchange` copy moved into the same step, ordered before the reject, so a failed persistence can no longer leave an orphaned copy. This does not make the two writes atomic — nothing can — but it inverts the failure mode from "lost record" to "possible duplicate record", which is recoverable.
+- **Release publication could not be blocked by an invalid changelog** ([#36](https://github.com/iamfarhad/LaravelRabbitMQ/issues/36)). Changelog verification ran on `release: [released]`, i.e. after the tag existed, and the workflow that replaced it *rewrote* `CHANGELOG.md` post-publication instead of asserting anything. Publishing now goes through a `workflow_dispatch` release workflow that validates first — exactly one dated `## [x.y.z] - YYYY-MM-DD` section with content, optional leading `v` normalised, tag must not already exist — and only creates the tag and release if that passes. Pull requests validate every released section so `master` stays releasable, and the post-release check is read-only monitoring.
+- **`purgeQueue()` and `deleteQueue()` threw on a missing queue.** Their 404 handling only caught `AMQPChannelException`, but ext-amqp reports `NOT_FOUND` as an `AMQPQueueException`.
+- **`rabbitmq:consume --stop-when-empty` hung in `consume` mode.** `basic.consume` only evaluates stop conditions when a delivery arrives, so an empty queue never triggered them. That combination now falls back to `poll` mode, which can observe emptiness, and logs why.
+
+### 💥 Fixed — Laravel 13
+
+- **`rabbitmq:consume` was broken on Laravel 13.** Laravel 13 changed `Worker::stopIfNecessary()` from `($options, $lastRestart, $startTime, $jobsProcessed, $job): int|null` to `($options, $lastRestart, $startTime, $job): array{int, WorkerStopReason}|null`. The consumer passed the old argument list unconditionally, which meant:
+  - the processed-job count arrived in the `$job` slot, so `--stop-when-empty` and `--stop-when-empty-for` **never fired**;
+  - the framework's own `$jobsProcessed` counter was never updated, so `--max-jobs` **never fired**;
+  - the returned status *array* was handed to `Worker::stop()` and returned out through `ConsumeCommand::consume(): int`, raising a `TypeError` on every graceful shutdown (SIGTERM, memory limit, `queue:restart`, `--max-time`) and exiting **1** instead of 0 — which supervisors and Kubernetes read as a crash loop;
+  - `pauseWorker()`'s return value was discarded, so a paused worker ignored quit, memory and restart signals entirely.
+
+  The consumer now detects the installed signature by reflection and normalises both the argument list and the return shape. Laravel 10, 11 and 12 behaviour is unchanged.
+
+### 💥 Fixed — other blockers
+
+- **The `RabbitMQ` facade never worked.** Its accessor `rabbitmq.queue` was not bound in the container, so every call threw `BindingResolutionException` despite the alias being auto-registered through `composer.json`. It now resolves the application's RabbitMQ queue connection — the default queue connection when that is a RabbitMQ connection, otherwise the connection named `rabbitmq`.
+- **RPC could never be used.** `RpcClient` assigned `AMQPQueue::declareQueue()` — which returns the queue's *message count* — to a `string $callbackQueueName` property, so the constructor threw a `TypeError` under `strict_types` before an RPC call could be made. The broker-assigned name is now read from the queue itself, `rpc.callback_queue_prefix` is honoured, and the reply queue is declared auto-delete.
+- **Numeric values in `.env` crashed the driver.** Laravel's `env()` only coerces `true`/`false`/`null`/`empty`; every number arrives as a string. `ConnectionPool`, `ChannelPool`, `ConnectionFactory`, `ExponentialBackoff`, `PublisherConfirms`, `RpcClient` and the consumer's QoS all assigned those strings into typed properties and arguments under `strict_types`, so documented variables like `RABBITMQ_MAX_CONNECTIONS=20` were an outright `TypeError`. The shipped defaults are ints, which is why this only appeared once the driver was actually configured. Every value is now cast, both in `config/rabbitmq.php` and defensively at the point of use.
+- **`getConnection()` leaked a pooled connection on every call.** It checked a connection out of the connection pool and nothing ever handed it back, so with `failed.ownership=exchange` every failed job leaked one until the pool threw `Connection pool exhausted`. The connection returned was also usually *not* the one backing the current channel, making the liveness check it existed for meaningless. It now returns the connection behind the channel in use.
+- **Consume mode stranded messages while paused.** In `RABBITMQ_CONSUME_MODE=consume`, a delivery that arrived while the worker was paused or the application was in maintenance mode was neither acked nor rejected, leaving it (and up to `prefetch_count` more) unacked until the connection happened to drop. The delivery is now requeued before pausing.
+
+### 💥 Fixed — reliability and correctness
+
+- **A configured `exchange` silently discarded every message.** `declareDestination()` declared the exchange *instead of* the queue and never bound the two, so on a fresh broker setting `RABBITMQ_EXCHANGE` lost every job — and publisher confirms ACK an unroutable message, so nothing surfaced the loss. The queue is now always declared, the exchange is declared, and the queue is bound to it with the configured routing key. `queues.<queue>.bindings` is applied too; it was previously read by no code at all.
+- **The default exchange no longer applies the routing-key pattern.** The default exchange routes solely on the literal queue name, so a custom `exchange_routing_key` produced a key that matched nothing and the message vanished. This also fixes delayed publishes, which route through the default exchange.
+- **Multiple RabbitMQ connections are now supported.** Every topology and feature setting was read from the hardcoded `queue.connections.rabbitmq` block regardless of which connection was in use, so a second named connection silently inherited the first one's exchange, routing keys, quorum mode, priorities, publisher confirms, RPC, transaction and job-class settings — and received no package defaults at all. Settings now resolve per connection (own block → the `rabbitmq` block → the package defaults), and the service provider seeds defaults into every connection with `driver: rabbitmq`.
+- **Pooled channels are no longer reused after being mutated.** `confirm.select`, `tx.select` and `basic.qos` permanently change a channel and AMQP offers no way to undo them, yet such channels were returned to the pool — handing confirm mode (plus the previous owner's confirm callback), an open transaction, or a prefetch to the next borrower. They are now retired on release. Enabling transactions while publisher confirms are on is also rejected outright rather than failing at the broker.
+- **Publisher confirms track their messages again.** `registerPendingConfirm()` was never called, so the pending ledger was permanently empty, a NACK was reported as a bare delivery tag rather than a correlation ID, and a batch could not be confirmed with one wait. Optional `publisher_confirms.mandatory` adds a `basic.return` handler so an unroutable publish becomes a reported failure instead of a silent drop.
+- **Horizon no longer double-processes delayed jobs.** `laterRaw()` published through `$this->pushRaw()` when the delay resolved to zero, re-entering `HorizonRabbitQueue`'s override: the payload was wrapped in a Horizon envelope twice and `JobPending`/`JobPushed` were dispatched twice. `later()` also bypassed `enqueueUsing()`, skipping `after_commit` and `createPayloadUsing()` for delayed jobs. Both are fixed, `HorizonRabbitQueue::deleteReserved()` now settles the delivery, and a stale `lastPushed` job reference can no longer tag an unrelated raw push.
+- **Topology mismatches are reported instead of hidden.** A `406 PRECONDITION_FAILED` on redeclaring a queue or exchange was swallowed, so changing `quorum`, `lazy`, priority or dead-letter configuration on an existing queue was a silent no-op — and the broker-closed channel was left in use. Mismatches are now logged as warnings and the channel is retired.
+- **`queueExists()` no longer reports every error as "absent".** A `403 ACCESS_REFUSED` or a dead channel was indistinguishable from a missing queue. Only `404` means absent now; anything else is thrown, and the broker-closed channel is always released.
+- Pool counters can no longer drift negative from repeated or foreign `closeChannel()`/`closeConnection()` calls, which previously raised the effective connection ceiling. A dead connection released back to the pool is now actually closed instead of only decrementing a counter.
+
+### ⚡ Performance and scale
+
+- **Polling costs one broker round trip instead of two or three.** `pop()` issued a passive `queue.declare` before every `basic.get`, doubling broker load for the whole life of a worker. Declared queues, exchanges and bindings are now memoised per channel and forgotten whenever the channel is replaced.
+- **Delayed jobs no longer create an unbounded number of queues.** Delay queues are named after their TTL, so jittered or computed backoff values produced a new durable queue per distinct delay. TTLs are now rounded up into buckets of `delay_queue_granularity` (default 1000 ms; rounding up never fires a job early). Set it to `1` to restore exact-TTL queues, or enable `delayed_message.plugin_enabled` when you need many distinct delays — the plugin path uses a single exchange and now also declares and binds the target queue.
+- **`bulk()` confirms once per batch** rather than paying a broker round trip per message.
+- Channel replacement and connection retries use bounded, jittered exponential backoff instead of a fixed linear delay, so a fleet reconnecting after a broker restart does not synchronise into a thundering herd. Every configured host now gets at least one connection attempt even when `pool.max_retries` is lower than the host count.
+- `RpcClient` and `RpcServer` poll on a 1 ms escalating interval instead of a flat 100 ms, and `RpcClient` bounds its reply buffer so replies for callers that already timed out cannot accumulate.
+
+### ⚠️ Changed defaults
+
+- `hosts.heartbeat` now defaults to **60** (was `0`). Without heartbeats, idle connections are reaped by brokers, load balancers and firewalls, surfacing later as "Broken pipe".
+- `hosts.connect_timeout` and `options.connect_timeout` now default to **10** seconds (was `0`, meaning no bound).
+- `options.queue.qos.prefetch_count` now defaults to **1** (was `10`), and QoS is applied in consume mode only — `basic.qos` never governed the default `basic.get` poll mode. A single-threaded worker runs one job at a time; a higher prefetch parks the surplus behind it, where a timeout or crash turns them into redeliveries.
+- `pool.lazy` now defaults to **true**. Eager initialisation opened `pool.min_connections` sockets as a side effect of merely resolving the queue connection, in every artisan one-shot and every request that never published. Set it to `false` to pre-warm long-lived workers.
+- `laterRaw()`'s `$attempts` argument now defaults to **0** instead of `2`. It is an attempt count, and a value of 2 made a first-time delayed job report three attempts once attempts started travelling in message headers.
+- `PoolManager::isHealthy()` now means "the pool can still serve work" rather than "the pool holds at least `min_connections`", which reported every idle lazy pool as unhealthy.
+- `connection_name` is now a configurable label shown in the RabbitMQ management UI. It was previously overwritten with the transport string (`"ssl"`), making every TLS connection anonymous there.
+
+### 🧹 Removed configuration keys
+
+These were read by no code. Leaving them in place implied behaviour the driver never had:
+
+`hosts.keepalive`, `options.ssl_options.passphrase`, `options.queue.qos.global`, `queues.*.name`, `queues.*.exclusive`, `exchanges.*`, `delayed_message.enabled`, `backoff.enabled`.
+
+`queues.*.durable`, `queues.*.auto_delete`, `queues.*.bindings`, `dead_letter.queue_suffix`, `dead_letter.ttl` and `rpc.callback_queue_prefix` were also unread — those are now implemented rather than removed.
+
+### 🔧 Internal
+
+- `rabbitmq:pool-stats` resolves the queue connection so it has a pool to report on. It previously printed "No active RabbitMQ pool manager found" in any fresh artisan process, since pools are per-process. It takes an optional `connection` argument, and `--watch` no longer shells out to `clear(1)` per tick.
+- `rabbitmq:queue-declare`, `queue-purge`, `queue-delete` and `exchange-declare` accept `--connection` instead of hardcoding the connection named `rabbitmq`.
+- Cleanup and Horizon event listeners are registered once per dispatcher. `connect()` runs on every queue-connection resolution and used to stack another `WorkerStopping` (and, under Octane, `RequestTerminated`) closure each time, growing without bound and calling `closeAll()` once per accumulated listener.
+- The consumer restores the framework's `Looping` event (so `Queue::looping()` callbacks and Horizon's pause hooks work), calls `resetScope` between jobs, and dispatches `WorkerStarting`/`WorkerIdle` where available.
+- `RabbitQueue::createMessage()` is deprecated in favour of `correlationIdFor()`. It never created a message and ignored its `$attempts` argument.
+- CI now runs `composer analyse`, which had never been wired up — the Laravel 13 arity break was reported by PHPStan but never seen. PHPStan is upgraded to 2.x and `larastan` is an optional local add-on (it does not support the Laravel 10 line). Static analysis and the full suite are verified against both Laravel 12 and Laravel 13, i.e. both sides of the `Worker` API change.
+- `SUPPORT.md` no longer claims CI coverage for Laravel 10.x and 11.x. Those rows cannot be built: every released version of both lines is currently flagged by Composer's security-advisory policy, so `composer update` refuses to resolve them, and the only alternatives would be disabling advisory blocking or pinning a flagged release. They remain declared in `composer.json` and best-effort supported.
+- Attempt counts now travel in a `laravel.attempts` message header as well as the payload body. `attempts()` already preferred the header, but nothing ever set it.
+
 ## [1.4.1] - 2026-08-04
 
 ### ⚠️ Changed
@@ -249,7 +323,7 @@ None. All new features are opt-in and backward compatible.
 
 ---
 
-## [1.0.0] - Previous Versions
+## [1.0.0] - 2025-09-11
 
 ### Legacy Features
 - Basic RabbitMQ queue driver functionality

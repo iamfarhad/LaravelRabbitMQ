@@ -20,6 +20,11 @@ class HorizonRabbitQueue extends RabbitQueue
 
     private const HORIZON_JOB_DELETED = 'Laravel\\Horizon\\Events\\JobDeleted';
 
+    /**
+     * The job instance behind the payload currently being published, so the
+     * Horizon payload can be tagged with its display name. Cleared as soon as
+     * the publish finishes so a later raw push can never pick up a stale job.
+     */
     private string|object|null $lastPushed = null;
 
     public function readyNow(?string $queue = null): int
@@ -31,7 +36,27 @@ class HorizonRabbitQueue extends RabbitQueue
     {
         $this->lastPushed = $job;
 
-        return parent::push($job, $data, $queue);
+        try {
+            return parent::push($job, $data, $queue);
+        } finally {
+            $this->lastPushed = null;
+        }
+    }
+
+    /**
+     * Delayed dispatch goes through the inherited enqueueUsing() path so
+     * `after_commit` and any createPayloadUsing() hooks still apply; the Horizon
+     * payload preparation and events happen in laterRaw() below.
+     */
+    public function later($delay, $job, $data = '', $queue = null): ?string
+    {
+        $this->lastPushed = $job;
+
+        try {
+            return parent::later($delay, $job, $data, $queue);
+        } finally {
+            $this->lastPushed = null;
+        }
     }
 
     public function pushRaw($payload, $queue = null, array $options = []): ?string
@@ -46,17 +71,20 @@ class HorizonRabbitQueue extends RabbitQueue
         });
     }
 
-    public function later($delay, $job, $data = '', $queue = null): ?string
+    /**
+     * The parent publishes through publishRaw(), not pushRaw(), so a delay that
+     * resolves to zero no longer re-enters the override above — which used to
+     * wrap the payload in a Horizon envelope twice and dispatch both the
+     * pending and pushed events a second time.
+     */
+    public function laterRaw($delay, $payload, $queue = null, $attempts = 0): ?string
     {
-        $payload = $this->prepareHorizonPayload(
-            $this->createPayload($job, $this->getQueue($queue), $data),
-            $job
-        );
+        $payload = $this->prepareHorizonPayload((string) $payload, $this->lastPushed);
         $queueName = $this->getQueue($queue);
 
         $this->dispatchHorizonEvent($queueName, self::HORIZON_JOB_PENDING, [$payload]);
 
-        return tap(parent::laterRaw($delay, $payload, $queue), function () use ($queueName, $payload): void {
+        return tap(parent::laterRaw($delay, $payload, $queue, $attempts), function () use ($queueName, $payload): void {
             $this->dispatchHorizonEvent($queueName, self::HORIZON_JOB_PUSHED, [$payload]);
         });
     }
@@ -76,12 +104,21 @@ class HorizonRabbitQueue extends RabbitQueue
 
     public function deleteReserved($queue, $job): void
     {
-        if ($job instanceof RabbitMQJob) {
-            $this->dispatchHorizonEvent(
-                $this->getQueue($queue),
-                self::HORIZON_JOB_DELETED,
-                [$job, $job->getRawBody()]
-            );
+        if (! $job instanceof RabbitMQJob) {
+            return;
+        }
+
+        $this->dispatchHorizonEvent(
+            $this->getQueue($queue),
+            self::HORIZON_JOB_DELETED,
+            [$job, $job->getRawBody()]
+        );
+
+        // Settle the delivery too, but only when nothing has settled it yet:
+        // RabbitMQJob::delete() acks, and acking an already-settled delivery
+        // would be reported as a settlement failure.
+        if (! $job->isDeletedOrReleased()) {
+            $job->delete();
         }
     }
 

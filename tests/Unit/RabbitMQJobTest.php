@@ -77,7 +77,6 @@ class RabbitMQJobTest extends UnitTestCase
 
     public function testAttemptsFallbackToPersistedPayloadAttemptsWhenHeadersAreMissing(): void
     {
-        $this->skipIfAmqpExtensionLoaded();
 
         $payload = json_encode([
             'id' => 'job-id',
@@ -100,7 +99,6 @@ class RabbitMQJobTest extends UnitTestCase
 
     public function testReleasePersistsAttemptCountInPayloadForNextRetry(): void
     {
-        $this->skipIfAmqpExtensionLoaded();
 
         $payload = json_encode([
             'id' => 'job-id',

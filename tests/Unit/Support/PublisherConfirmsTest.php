@@ -30,6 +30,13 @@ class PublisherConfirmsTest extends UnitTestCase
      */
     private $nackCallback;
 
+    /**
+     * The basic.return callback handed to ext-amqp by enable().
+     *
+     * @var callable|null
+     */
+    private $returnCallback;
+
     private int $callbackRegistrations = 0;
 
     protected function setUp(): void
@@ -115,6 +122,13 @@ class PublisherConfirmsTest extends UnitTestCase
                 $this->nackCallback = $nack;
             });
 
+        $this->channel->shouldReceive('setReturnCallback')
+            ->once()
+            ->andReturnUsing(function (callable $return) use (&$registrationOrder): void {
+                $registrationOrder[] = 'setReturnCallback';
+                $this->returnCallback = $return;
+            });
+
         $this->channel->shouldReceive('confirmSelect')
             ->once()
             ->andReturnUsing(function () use (&$registrationOrder): void {
@@ -123,9 +137,10 @@ class PublisherConfirmsTest extends UnitTestCase
 
         $this->confirms->enable();
 
-        $this->assertSame(['setConfirmCallback', 'confirmSelect'], $registrationOrder);
+        $this->assertSame(['setConfirmCallback', 'setReturnCallback', 'confirmSelect'], $registrationOrder);
         $this->assertIsCallable($this->ackCallback);
         $this->assertIsCallable($this->nackCallback);
+        $this->assertIsCallable($this->returnCallback);
     }
 
     /**
@@ -299,6 +314,81 @@ class PublisherConfirmsTest extends UnitTestCase
     }
 
     /**
+     * An unroutable mandatory publish is ACKed by RabbitMQ after being returned,
+     * so basic.return is the only signal that the message went nowhere.
+     */
+    public function testUnroutableReturnIsSurfacedAsFailedConfirmation(): void
+    {
+        $this->enableConfirms();
+        $this->channel->shouldReceive('waitForConfirm')->once();
+
+        $this->confirms->registerPendingConfirm('correlation-a');
+        ($this->returnCallback)(312, 'NO_ROUTE', 'events', 'orders');
+
+        $this->assertTrue($this->confirms->hasPendingReturn());
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage(
+            'Message was returned as unroutable by broker: 312 NO_ROUTE (exchange [events], routing key [orders])'
+        );
+
+        $this->confirms->waitForConfirms();
+    }
+
+    public function testReturnStateIsSingleUseAndDoesNotLeakIntoALaterAck(): void
+    {
+        $this->enableConfirms();
+        $this->channel->shouldReceive('waitForConfirm')->twice();
+
+        ($this->returnCallback)(312, 'NO_ROUTE', '', 'missing');
+
+        try {
+            $this->confirms->waitForConfirms();
+            $this->fail('The returned message should have failed the confirmation.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('unroutable', $e->getMessage());
+        }
+
+        $this->assertFalse($this->confirms->hasPendingReturn());
+
+        ($this->ackCallback)(1, false);
+
+        $this->assertTrue($this->confirms->waitForConfirms());
+    }
+
+    /**
+     * The ACK callback keeps the wait alive while anything is still outstanding,
+     * which is what lets a batch be confirmed with a single wait.
+     */
+    public function testAckKeepsWaitingWhileDeliveriesAreStillOutstanding(): void
+    {
+        $this->enableConfirms();
+
+        $this->confirms->registerPendingConfirm('correlation-a');
+        $this->confirms->registerPendingConfirm('correlation-b');
+
+        $this->assertSame(2, $this->confirms->getPendingCount());
+        $this->assertTrue(($this->ackCallback)(1, false), 'One delivery is still outstanding.');
+        $this->assertSame(1, $this->confirms->getPendingCount());
+        $this->assertFalse(($this->ackCallback)(2, false), 'Nothing is outstanding any more.');
+        $this->assertSame(0, $this->confirms->getPendingCount());
+    }
+
+    /**
+     * A raw publish elsewhere on the channel shifts the broker's sequence. The
+     * ledger must still drain, or every later wait would block until timeout.
+     */
+    public function testUnknownDeliveryTagStillResolvesTheOldestOutstandingDelivery(): void
+    {
+        $this->enableConfirms();
+
+        $this->confirms->registerPendingConfirm('correlation-a');
+
+        $this->assertFalse(($this->ackCallback)(9999, false));
+        $this->assertSame(0, $this->confirms->getPendingCount());
+    }
+
+    /**
      * Enable confirm mode while capturing the callbacks ext-amqp would invoke.
      */
     private function enableConfirms(): void
@@ -316,6 +406,11 @@ class PublisherConfirmsTest extends UnitTestCase
                 $this->callbackRegistrations++;
                 $this->ackCallback = $ack;
                 $this->nackCallback = $nack;
+            });
+
+        $this->channel->shouldReceive('setReturnCallback')
+            ->andReturnUsing(function (callable $return): void {
+                $this->returnCallback = $return;
             });
     }
 
