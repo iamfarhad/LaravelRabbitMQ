@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-08-04
 
 ### ⚠️ Changed
 
@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `exchange` — the previous behaviour: reject, then also publish a copy to the queue named by `failed.exchange` (`RABBITMQ_FAILED_MESSAGES_EXCHANGE`, default `failed_messages`). Set this if you relied on the `failed_messages` copy, and do not combine it with `reroute_failed`.
 
   The copy is now published through the default exchange so it actually lands in the failure queue that is declared for it, instead of being routed by the connection's configured publishing exchange. The re-entry guard also checks the consumed queue, not just the envelope's exchange name, so consuming the failure queue can no longer republish failures in a loop. Settings are read from the failing job's own connection, falling back to `queue.connections.rabbitmq`.
+
+  See [UPGRADE.md](UPGRADE.md#upgrading-to-140) for the migration steps.
+
+### 🚀 Added
+
+- `failed.ownership` / `failed.exchange` configuration for terminal-failure routing, with the `RABBITMQ_FAILED_OWNERSHIP` and `RABBITMQ_FAILED_MESSAGES_EXCHANGE` environment variables.
+- `RabbitMQJob::failureOwner()` is `protected`, so a custom job class (`options.queue.job`) can decide failure ownership per job instead of per connection.
+- `PublisherConfirms::hasPendingNack()` for inspecting whether a broker NACK is waiting to be reported.
 
 ### 🐛 Fixed
 

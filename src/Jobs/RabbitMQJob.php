@@ -22,7 +22,7 @@ class RabbitMQJob extends Job implements JobContract
 
     /**
      * Terminal failures are additionally copied to a package-published
-     * failure exchange/queue (pre-1.3.5 behaviour).
+     * failure exchange/queue (pre-1.4.0 behaviour).
      */
     public const FAILURE_OWNER_EXCHANGE = 'exchange';
 

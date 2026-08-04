@@ -32,7 +32,7 @@ php artisan rabbitmq:consume --queue=default --num-processes=1 --once
 
 If your version of `rabbitmq:consume` does not support `--once`, run it in a controlled environment and stop it after a successful job.
 
-## Upgrading to 1.3.5
+## Upgrading to 1.4.0
 
 ### Terminal failure ownership changed
 
