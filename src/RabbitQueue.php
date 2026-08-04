@@ -15,6 +15,7 @@ use AMQPQueueException;
 use Exception;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Contracts\RabbitQueueInterface;
+use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\Support\ExchangeManager;
 use iamfarhad\LaravelRabbitMQ\Support\ExponentialBackoff;
@@ -365,7 +366,13 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     public function close(): void
     {
         if ($this->rabbitMQJob !== null && ! $this->rabbitMQJob->isDeletedOrReleased()) {
-            $this->reject($this->rabbitMQJob, true);
+            try {
+                $this->reject($this->rabbitMQJob, true);
+            } catch (SettlementException) {
+                // Shutdown path: closing the channel below is itself enough for
+                // the broker to requeue an unresolved delivery, and throwing
+                // here would abort the rest of the shutdown.
+            }
         }
 
         $this->releaseChannel();
@@ -468,67 +475,82 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      * message, so a failed ack/reject can never be retried on a replacement
      * channel: the tag either won't exist there (broker error) or, worse,
      * could collide with an unrelated later delivery on that new channel.
-     * On failure we just release the dead channel so the pool doesn't
-     * hand it out again; the broker will requeue the message once it
-     * notices the channel is gone.
+     * On failure we release the dead channel so the pool doesn't hand it out
+     * again — that release is also what lets the broker redeliver the
+     * unresolved delivery — and throw, because releasing a channel proves
+     * nothing about whether the broker settled the delivery (issues #31, #33).
+     */
+    /**
+     * @throws SettlementException when the delivery could not be settled
      */
     public function reject(RabbitMQJob $rabbitMQJob, bool $requeue = false): void
     {
-        $envelope = $rabbitMQJob->getRabbitMQMessage();
-        $deliveryTag = $envelope->getDeliveryTag();
-
-        if ($deliveryTag === null) {
-            return;
-        }
-
-        // Use the cached channel directly — never getChannel(), which may
-        // swap in a replacement where this delivery tag is meaningless or,
-        // worse, refers to an unrelated delivery. If the delivering channel
-        // is already gone, dropping it is enough: the broker requeues the
-        // unacked message once it notices the channel died.
-        $channel = $this->amqpChannel;
-
-        if ($channel === null || ! $this->isChannelUsable($channel)) {
-            $this->releaseChannel();
-
-            return;
-        }
-
-        try {
-            $amqpQueue = new AMQPQueue($channel);
-            $amqpQueue->setName($rabbitMQJob->getQueue());
-            $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
-        } catch (AMQPChannelException|AMQPConnectionException) {
-            $this->releaseChannel();
-        }
+        $this->settle(
+            'reject',
+            $rabbitMQJob,
+            static function (AMQPQueue $amqpQueue, int|string $deliveryTag) use ($requeue): void {
+                $amqpQueue->reject($deliveryTag, $requeue ? AMQP_REQUEUE : AMQP_NOPARAM);
+            }
+        );
     }
 
     /**
      * @see reject() for why this does not retry on a replacement channel.
+     *
+     * @throws SettlementException when the delivery could not be settled
      */
     public function ack(RabbitMQJob $rabbitMQJob): void
     {
-        $envelope = $rabbitMQJob->getRabbitMQMessage();
-        $deliveryTag = $envelope->getDeliveryTag();
+        $this->settle(
+            'ack',
+            $rabbitMQJob,
+            static function (AMQPQueue $amqpQueue, int|string $deliveryTag): void {
+                $amqpQueue->ack($deliveryTag);
+            }
+        );
+    }
+
+    /**
+     * Settle a delivery with the broker, reporting failure instead of hiding it.
+     *
+     * A settlement that does not reach the broker leaves the delivery unresolved
+     * and eligible for redelivery, so silently returning would let callers treat
+     * an unresolved delivery as handled. Every failure path therefore releases
+     * the unusable delivering channel — which is what lets the broker redeliver —
+     * and throws.
+     *
+     * @param  callable(AMQPQueue, int|string): void  $settlement
+     *
+     * @throws SettlementException
+     */
+    private function settle(string $operation, RabbitMQJob $rabbitMQJob, callable $settlement): void
+    {
+        $queueName = $rabbitMQJob->getQueue();
+        $deliveryTag = $rabbitMQJob->getRabbitMQMessage()->getDeliveryTag();
 
         if ($deliveryTag === null) {
-            return;
+            throw SettlementException::missingDeliveryTag($operation, $queueName);
         }
 
+        // Use the cached channel directly — never getChannel(), which may
+        // swap in a replacement where this delivery tag is meaningless or,
+        // worse, refers to an unrelated delivery.
         $channel = $this->amqpChannel;
 
         if ($channel === null || ! $this->isChannelUsable($channel)) {
             $this->releaseChannel();
 
-            return;
+            throw SettlementException::channelUnusable($operation, $queueName);
         }
 
         try {
             $amqpQueue = new AMQPQueue($channel);
-            $amqpQueue->setName($rabbitMQJob->getQueue());
-            $amqpQueue->ack($deliveryTag);
-        } catch (AMQPChannelException|AMQPConnectionException) {
+            $amqpQueue->setName($queueName);
+            $settlement($amqpQueue, $deliveryTag);
+        } catch (AMQPChannelException|AMQPConnectionException|AMQPQueueException $exception) {
             $this->releaseChannel();
+
+            throw SettlementException::brokerRefused($operation, $queueName, $exception);
         }
     }
 

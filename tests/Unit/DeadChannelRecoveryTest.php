@@ -12,6 +12,7 @@ use AMQPEnvelope;
 use iamfarhad\LaravelRabbitMQ\Connection\ChannelPool;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionPool;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
+use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
@@ -158,7 +159,7 @@ class DeadChannelRecoveryTest extends UnitTestCase
         $queue->declareQueue('orders');
     }
 
-    public function testAckIsSkippedWhenDeliveringChannelIsDead(): void
+    public function testAckReportsFailureAndReleasesTheChannelWhenTheDeliveringChannelIsDead(): void
     {
         $deadChannel = Mockery::mock(AMQPChannel::class);
         $deadChannel->shouldReceive('isConnected')->andReturn(false);
@@ -180,8 +181,14 @@ class DeadChannelRecoveryTest extends UnitTestCase
         // The delivery tag only exists on the dead channel: ack must release
         // it and let the broker requeue, never construct an AMQPQueue on a
         // replacement channel (AMQPQueue is not defined in this test, so any
-        // construction attempt would fail loudly).
-        $queue->ack($job);
+        // construction attempt would fail loudly). It must also report the
+        // failure rather than let the caller assume the delivery was settled.
+        try {
+            $queue->ack($job);
+            $this->fail('ack() should report that the delivery could not be settled.');
+        } catch (SettlementException $exception) {
+            $this->assertStringContainsString('Cannot ack delivery on queue [default]', $exception->getMessage());
+        }
 
         $cachedChannel = new \ReflectionProperty($queue, 'amqpChannel');
 

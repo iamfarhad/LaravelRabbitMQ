@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ⚠️ Changed
+
+- **`ack()` and `reject()` now report settlement failures instead of swallowing them** ([#31](https://github.com/iamfarhad/LaravelRabbitMQ/issues/31), [#33](https://github.com/iamfarhad/LaravelRabbitMQ/issues/33)): both methods used to catch `AMQPChannelException`/`AMQPConnectionException`, release the channel, and return normally — and to return silently when the delivering channel was already `null` or unusable. Callers could not tell a completed settlement from one that never reached the broker, so a job could be recorded as handled while RabbitMQ still owned an unresolved delivery and would redeliver it later. Every failure path now throws the new `iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException` after releasing the unusable delivering channel (that release is what lets the broker redeliver). Successful settlement is unchanged, and a delivery tag is still never retried on a replacement channel, since tags are scoped to the channel that delivered the message.
+
+  **Consequence to plan for:** a failed ack now surfaces as an exception from `RabbitMQJob::delete()`, which Laravel's worker reports through its exception handler. With `--tries=1` that also records a failed job even though the handler itself succeeded, and the delivery will be redelivered — job handlers consuming at-least-once deliveries must be idempotent. The original AMQP exception is available via `getPrevious()`, and its message is folded into the `SettlementException` message so Laravel's lost-connection detection keeps working. `RabbitQueue::close()` deliberately tolerates a settlement failure during shutdown, because closing the channel already lets the broker requeue.
+
+### 🐛 Fixed
+
+- **A failed reject could suppress the authoritative failed-job record** ([#32](https://github.com/iamfarhad/LaravelRabbitMQ/issues/32)): Laravel calls `markAsFailed()` *before* the `try`/`finally` in `Job::fail()` that dispatches `JobFailed` — the event whose listener writes to `failed_jobs`. With settlement failures now observable, an exception escaping `markAsFailed()` would have aborted that lifecycle and lost the durable explanation for the failure. `markAsFailed()` therefore reports a `SettlementException` through the application's exception handler and continues, so Laravel always gets to persist its record, and the unresolved delivery stays eligible for redelivery.
+
+  **Known limitation:** the reject still happens before `failed_jobs` is written. If that write fails, the delivery may already be settled. Configure a dead-letter exchange (`failed.ownership=broker` with `reroute_failed`, the default since 1.4.0) so a rejected message is preserved in the DLQ regardless. See [Failure ownership](docs/production.md#failure-ownership).
+
+### 🔧 Internal
+
+- The near-identical `ack()`/`reject()` bodies are now one `settle()` helper, so the delivering-channel rules cannot drift between them.
+- `.github/workflows/update-changelog.yml` is replaced by `verify-changelog.yml`. The old workflow checked out a `main` branch that does not exist in this repository and failed on every release from 1.3.0 through 1.4.0. The changelog is hand-curated, so the replacement asserts that a published release has a matching `## [x.y.z]` section rather than writing one.
+
 ## [1.4.0] - 2026-08-04
 
 ### ⚠️ Changed
