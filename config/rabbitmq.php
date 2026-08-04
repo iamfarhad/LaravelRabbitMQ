@@ -48,7 +48,7 @@ return [
         //              x-dead-letter-exchange own the failure (default; this is
         //              the mode to use together with `reroute_failed`).
         // 'exchange' — reject, then also publish a copy to the queue named in
-        //              `failed.exchange` below. This is the pre-1.3.5
+        //              `failed.exchange` below. This is the pre-1.4.0
         //              behaviour; do not combine it with `reroute_failed` or
         //              any other x-dead-letter-exchange on the source queue,
         //              or the same failure is recorded twice.
