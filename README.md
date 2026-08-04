@@ -43,8 +43,8 @@ Use it when you want:
 
 ## Requirements
 
-- PHP 8.2 or higher.
-- Laravel 10.x, 11.x, 12.x, or 13.x according to the Composer constraints.
+- PHP 8.2 or higher (Laravel 13 itself requires PHP 8.3 or higher).
+- Laravel 12.x or 13.x, both built in CI. Laravel 10.x and 11.x are still allowed by the Composer constraints and supported on a best-effort basis — they are not CI-verified, because every released version of those two lines is currently flagged by Composer's security-advisory policy and cannot be installed without disabling that policy. If you are on Laravel 10 or 11, upgrade the framework.
 - RabbitMQ 3.13 or 4.x for the primary supported/tested matrix; RabbitMQ 3.8-3.12 is best effort.
 - `ext-amqp` PHP extension.
 - `ext-pcntl` only when running `rabbitmq:consume --num-processes` with a value greater than `1`.
@@ -194,6 +194,13 @@ RABBITMQ_HEALTH_CHECK_INTERVAL=30
 
 ### Publishing topology
 
+By default `RABBITMQ_EXCHANGE` is empty, so jobs are published through the
+default exchange, which routes on the literal queue name. Nothing else is
+needed, and `RABBITMQ_EXCHANGE_ROUTING_KEY` is **ignored** in this mode — the
+default exchange has no other way to route.
+
+To publish through your own exchange:
+
 ```env
 RABBITMQ_EXCHANGE=jobs
 RABBITMQ_EXCHANGE_TYPE=topic
@@ -201,6 +208,100 @@ RABBITMQ_EXCHANGE_ROUTING_KEY=jobs.%s
 ```
 
 `%s` is replaced with the Laravel queue name. For example, queue `emails` publishes with routing key `jobs.emails`.
+
+With a non-empty exchange the driver declares the exchange, declares the queue,
+**and binds the queue to it** with that routing key. Without the binding the
+broker silently discards every message, and publisher confirms acknowledge an
+unroutable message, so the loss is invisible.
+
+> **Upgrading with an exchange already configured:** if you created the binding
+> by hand, check that it matches what the driver will create — same exchange,
+> same routing key. A second binding on a *different* routing key delivers every
+> message twice.
+
+Additional bindings can be declared per queue:
+
+```php
+'queues' => [
+    'orders' => [
+        'bindings' => [
+            ['exchange' => 'events', 'exchange_type' => 'topic', 'routing_key' => 'order.*'],
+        ],
+    ],
+],
+```
+
+To make an unroutable publish fail loudly instead of vanishing, enable publisher
+confirms with the mandatory flag:
+
+```env
+RABBITMQ_PUBLISHER_CONFIRMS_ENABLED=true
+RABBITMQ_PUBLISHER_CONFIRMS_MANDATORY=true
+```
+
+### Delayed jobs
+
+`->delay()` works without any broker plugin: the driver routes the job through a
+per-TTL delay queue that dead-letters back to the target queue.
+
+Because each distinct TTL needs its own queue, delays are rounded **up** into
+buckets so jittered backoff cannot create an unbounded number of them. Rounding
+up never fires a job early.
+
+```env
+# Bucket size in milliseconds. Set to 1 for exact TTLs.
+RABBITMQ_DELAY_QUEUE_GRANULARITY=1000
+```
+
+If you need many distinct or sub-second delays, install the
+`rabbitmq_delayed_message_exchange` plugin and use a single exchange instead:
+
+```env
+RABBITMQ_DELAYED_PLUGIN_ENABLED=true
+```
+
+### Multiple connections
+
+Every setting resolves per connection, so a second RabbitMQ connection gets its
+own topology rather than inheriting the first one's:
+
+```php
+'connections' => [
+    'rabbitmq' => [
+        'driver' => 'rabbitmq',
+        'queue' => 'default',
+    ],
+
+    'rabbitmq_analytics' => [
+        'driver' => 'rabbitmq',
+        'queue' => 'analytics',
+        'exchange' => 'analytics-events',
+        'quorum' => true,
+    ],
+],
+```
+
+```php
+dispatch(new App\Jobs\RecordEvent($event))->onConnection('rabbitmq_analytics');
+```
+
+Anything a connection omits falls back to the `rabbitmq` connection and then to
+the package defaults. Name each connection for the broker's management UI with
+`RABBITMQ_CONNECTION_NAME`, which is what lets you tell one application's
+connections from another's.
+
+### Facade
+
+```php
+use iamfarhad\LaravelRabbitMQ\Facades\RabbitMQ;
+
+RabbitMQ::size('orders');
+RabbitMQ::declareQueue('orders');
+RabbitMQ::publishToExchange('events', $payload, 'order.created');
+```
+
+The facade resolves your default queue connection when that is a RabbitMQ
+connection, otherwise the connection named `rabbitmq`.
 
 ## Worker modes
 
@@ -221,6 +322,18 @@ php artisan rabbitmq:consume --queue=default --consume-mode=consume
 ```
 
 For `consume` mode, prefer one queue per worker process. Scale with Supervisor `numprocs`, containers, or Kubernetes replicas.
+
+Two things specific to this mode:
+
+- **Prefetch applies here only.** `basic.qos` governs `basic_consume` deliveries,
+  so `RABBITMQ_PREFETCH_COUNT` does nothing in poll mode. It defaults to `1`,
+  which is right for a single-threaded worker: anything prefetched beyond the job
+  in flight sits unacked behind it, where a timeout or crash turns it into a
+  redelivery rather than throughput. Raise it only for short, I/O-bound jobs.
+- **`--stop-when-empty` falls back to poll mode.** `basic_consume` only evaluates
+  stop conditions when a delivery arrives, so an empty queue would never trigger
+  them and the worker would block forever. That combination switches to poll mode
+  for the run and logs why.
 
 ## Common recipes
 
@@ -243,6 +356,7 @@ See [recipes](docs/recipes.md) for copy-paste examples covering:
 php artisan rabbitmq:pool-stats
 php artisan rabbitmq:pool-stats --json
 php artisan rabbitmq:pool-stats --watch --interval=5
+php artisan rabbitmq:pool-stats rabbitmq_analytics
 
 # Exchanges
 php artisan rabbitmq:exchange-declare jobs --type=topic
@@ -254,7 +368,13 @@ php artisan rabbitmq:queue-declare quorum-orders --quorum=1
 php artisan rabbitmq:queue-declare critical --priority=10
 php artisan rabbitmq:queue-purge orders --force
 php artisan rabbitmq:queue-delete orders --force
+
+# Any of them can target another RabbitMQ connection
+php artisan rabbitmq:queue-declare orders --connection=rabbitmq_analytics
 ```
+
+Pools are per-process, so `rabbitmq:pool-stats` reports the pool of the artisan
+process running it — not the pools inside your worker processes.
 
 ## Testing and quality
 
@@ -263,6 +383,33 @@ composer format-test
 composer analyse
 composer test
 ```
+
+The test suite talks to a real broker and requires `ext-amqp`; no test is
+skipped, so a missing extension or broker shows up as failures rather than
+silence. Point it at a broker with the usual environment variables:
+
+```bash
+docker run -d --name rabbitmq-test -p 5673:5672 \
+  -e RABBITMQ_DEFAULT_USER=laravel \
+  -e RABBITMQ_DEFAULT_PASS=secret \
+  -e RABBITMQ_DEFAULT_VHOST=b2b-field \
+  rabbitmq:4
+
+composer test
+```
+
+`phpunit.xml` defaults to port `5673` so a test broker does not collide with a
+local one on `5672`.
+
+## Releasing
+
+Releases are published by the **Release** workflow
+(Actions → Release → Run workflow), which validates before it tags: the version
+must have exactly one dated `## [x.y.z] - YYYY-MM-DD` section in `CHANGELOG.md`
+with content, and the tag must not already exist. It then creates the tag and the
+GitHub release from that section.
+
+Publishing a release through the GitHub UI instead bypasses that check.
 
 ## Troubleshooting
 
