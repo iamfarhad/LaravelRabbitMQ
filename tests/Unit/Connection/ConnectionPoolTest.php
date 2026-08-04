@@ -25,6 +25,9 @@ class ConnectionPoolTest extends UnitTestCase
             'pool' => [
                 'max_connections' => 5,
                 'min_connections' => 2,
+                // Eager initialisation is opt-in since 1.5: these tests assert
+                // that behaviour, so they ask for it explicitly.
+                'lazy' => false,
                 'health_check_enabled' => true,
                 'health_check_interval' => 30,
             ],
@@ -61,6 +64,24 @@ class ConnectionPoolTest extends UnitTestCase
         $stats = $pool->getStats();
 
         $this->assertEquals(2, $stats['available_connections']);
+    }
+
+    /**
+     * Opening min_connections sockets from a constructor would happen in every
+     * artisan one-shot and every request that never publishes, so the pool is
+     * lazy unless asked otherwise.
+     */
+    public function testIsLazyByDefaultAndOpensNoConnectionsUpFront(): void
+    {
+        unset($this->config['pool']['lazy']);
+
+        $this->mockFactory->shouldNotReceive('createConnection');
+
+        $pool = new ConnectionPool($this->mockFactory, $this->config);
+
+        $this->assertSame(0, $pool->getStats()['available_connections']);
+        $this->assertSame(0, $pool->getStats()['current_connections']);
+        $this->assertTrue($pool->getStats()['lazy']);
     }
 
     public function testGetsConnectionFromPool(): void

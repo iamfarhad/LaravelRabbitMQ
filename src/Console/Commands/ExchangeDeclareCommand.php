@@ -5,14 +5,16 @@ declare(strict_types=1);
 namespace iamfarhad\LaravelRabbitMQ\Console\Commands;
 
 use AMQPExchange;
-use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\Concerns\ResolvesRabbitQueue;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Queue;
 
 class ExchangeDeclareCommand extends Command
 {
+    use ResolvesRabbitQueue;
+
     protected $signature = 'rabbitmq:exchange-declare
                             {name : Exchange name}
+                            {--connection= : The RabbitMQ queue connection to use}
                             {--type=direct : Exchange type: direct, fanout, topic, headers}
                             {--durable=1 : Declare as durable}
                             {--auto-delete=0 : Declare as auto-delete}';
@@ -21,11 +23,9 @@ class ExchangeDeclareCommand extends Command
 
     public function handle(): int
     {
-        $connection = Queue::connection('rabbitmq');
+        $connection = $this->resolveRabbitQueue();
 
-        if (! $connection instanceof RabbitQueue) {
-            $this->error('The rabbitmq queue connection is not configured.');
-
+        if ($connection === null) {
             return self::FAILURE;
         }
 

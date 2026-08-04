@@ -136,21 +136,31 @@ class ExchangeManager
      * arguments are immutable, so if $queueName already exists without
      * these dead-letter arguments the declare here fails with 406 and is
      * ignored, leaving the existing queue not wired to the DLX.
+     *
+     * @param  string  $queueSuffix  Suffix appended to $queueName for the dead-letter queue.
+     * @param  int|null  $messageTtl  Optional retention, in milliseconds, for messages held in the dead-letter queue.
      */
     public function setupDeadLetterExchange(
         string $queueName,
         string $dlxName,
         string $dlxType = self::TYPE_DIRECT,
-        ?string $dlxRoutingKey = null
+        ?string $dlxRoutingKey = null,
+        string $queueSuffix = '.dlq',
+        ?int $messageTtl = null
     ): void {
         // Declare the dead letter exchange
         $this->declareExchange($dlxName, $dlxType, true, false);
 
         // Create dead letter queue
-        $dlqName = $queueName.'.dlq';
+        $dlqName = $queueName.($queueSuffix !== '' ? $queueSuffix : '.dlq');
         $dlq = new AMQPQueue($this->channel);
         $dlq->setName($dlqName);
         $dlq->setFlags(AMQP_DURABLE);
+
+        if ($messageTtl !== null && $messageTtl > 0) {
+            $dlq->setArguments(['x-message-ttl' => $messageTtl]);
+        }
+
         $dlq->declareQueue();
 
         // Bind dead letter queue to dead letter exchange

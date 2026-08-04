@@ -162,7 +162,14 @@ final class ConsumeCommand extends WorkCommand
             return (string) $mode;
         }
 
-        return (string) config('queue.connections.rabbitmq.options.queue.consume_mode', 'poll');
+        // Read from the connection actually being worked, falling back to the
+        // package's default connection block for single-connection setups.
+        $connection = (string) ($this->argument('connection') ?: config('queue.default', 'rabbitmq'));
+
+        return (string) (
+            config("queue.connections.{$connection}.options.queue.consume_mode")
+            ?? config('queue.connections.rabbitmq.options.queue.consume_mode', 'poll')
+        );
     }
 
     /**

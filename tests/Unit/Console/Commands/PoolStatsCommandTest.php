@@ -27,16 +27,43 @@ class PoolStatsCommandTest extends TestCase
         parent::tearDown();
     }
 
-    public function testShowsNoPoolManagerMessageWhenNoneActive(): void
+    /**
+     * Pools are per-process, so a fresh artisan process has none — the command
+     * used to do nothing but say so. It now resolves the queue connection to
+     * bring a pool into existence and reports on that.
+     */
+    public function testResolvesAPoolWhenTheProcessHasNoneYet(): void
     {
-        // Use reflection to clear the static poolManagers map
         $reflection = new \ReflectionClass(RabbitMQConnector::class);
         $property = $reflection->getProperty('poolManagers');
-        $property->setAccessible(true);
         $property->setValue(null, []);
 
         $this->artisan('rabbitmq:pool-stats')
-            ->expectsOutput('No active RabbitMQ pool manager found. Make sure a RabbitMQ connection is active.')
+            ->expectsOutput('📡 Connection Pool')
+            ->expectsOutput('Pools are per-process: these numbers describe this artisan process, not your workers.')
+            ->assertExitCode(0);
+    }
+
+    public function testFailsForAConnectionThatIsNotRabbitMq(): void
+    {
+        $reflection = new \ReflectionClass(RabbitMQConnector::class);
+        $property = $reflection->getProperty('poolManagers');
+        $property->setValue(null, []);
+
+        config(['queue.connections.not-rabbit' => ['driver' => 'sync']]);
+
+        $this->artisan('rabbitmq:pool-stats', ['connection' => 'not-rabbit'])
+            ->expectsOutput('Queue connection [not-rabbit] is not a RabbitMQ connection.')
+            ->assertExitCode(1);
+    }
+
+    public function testFailsForAnUnknownConnection(): void
+    {
+        $reflection = new \ReflectionClass(RabbitMQConnector::class);
+        $property = $reflection->getProperty('poolManagers');
+        $property->setValue(null, []);
+
+        $this->artisan('rabbitmq:pool-stats', ['connection' => 'does-not-exist'])
             ->assertExitCode(1);
     }
 
@@ -99,7 +126,12 @@ class PoolStatsCommandTest extends TestCase
             ->assertExitCode(0);
     }
 
-    public function testDisplaysWarningStatusWhenPoolUnhealthy(): void
+    /**
+     * "Unhealthy" now means the pool is exhausted — every connection checked out
+     * and no room to open another. It used to mean "holds fewer than
+     * min_connections", which reported every idle lazy pool as unhealthy.
+     */
+    public function testDisplaysWarningStatusWhenPoolExhausted(): void
     {
         $mockPoolManager = Mockery::mock(PoolManager::class);
 
@@ -107,7 +139,7 @@ class PoolStatsCommandTest extends TestCase
             'connection_pool' => [
                 'max_connections' => 10,
                 'min_connections' => 2,
-                'current_connections' => 1, // Below minimum
+                'current_connections' => 10, // At capacity, none idle
                 'active_connections' => 1,
                 'available_connections' => 0,
                 'health_check_enabled' => true,
@@ -147,7 +179,7 @@ class PoolStatsCommandTest extends TestCase
         $property->setValue(null, ['test' => $mockPoolManager]);
 
         $this->artisan('rabbitmq:pool-stats')
-            ->expectsOutput('🟡 Pool Status: Warning - Check connection count')
+            ->expectsOutput('🟡 Pool Status: Exhausted - every connection is checked out and the pool is at max_connections')
             ->assertExitCode(0);
     }
 

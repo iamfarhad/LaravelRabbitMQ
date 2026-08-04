@@ -10,11 +10,17 @@ use iamfarhad\LaravelRabbitMQ\Console\Commands\QueueDeleteCommand;
 use iamfarhad\LaravelRabbitMQ\Console\Commands\QueuePurgeCommand;
 use iamfarhad\LaravelRabbitMQ\Console\ConsumeCommand;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\ServiceProvider;
 
 final class LaravelRabbitQueueServiceProvider extends ServiceProvider
 {
+    /**
+     * Container key backing the RabbitMQ facade.
+     */
+    public const QUEUE_BINDING = 'rabbitmq.queue';
+
     public function register(): void
     {
         $this->mergeConfigFrom(
@@ -22,7 +28,8 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
             'rabbitmq'
         );
 
-        $this->configureRabbitMqConnection();
+        $this->configureRabbitMqConnections();
+        $this->registerFacadeBinding();
 
         if ($this->app->runningInConsole()) {
             $this->app->singleton('rabbitmq.consumer', function ($app): Consumer {
@@ -69,14 +76,69 @@ final class LaravelRabbitQueueServiceProvider extends ServiceProvider
         }
     }
 
-    private function configureRabbitMqConnection(): void
+    /**
+     * Back the RabbitMQ facade with the application's RabbitMQ queue connection.
+     *
+     * Without this binding the facade — auto-registered as an alias through
+     * composer.json — resolved nothing and every call threw
+     * BindingResolutionException.
+     */
+    private function registerFacadeBinding(): void
     {
-        $rabbitmqConfig = $this->app['config']->get('rabbitmq', []);
-        $queueConnectionConfig = $this->app['config']->get('queue.connections.rabbitmq', []);
+        $this->app->bind(self::QUEUE_BINDING, function ($app) {
+            return $app['queue']->connection($this->resolveRabbitMqConnectionName($app));
+        });
+    }
 
-        $this->app['config']->set(
-            'queue.connections.rabbitmq',
-            array_merge($rabbitmqConfig, $queueConnectionConfig)
-        );
+    /**
+     * Prefer the application's default queue connection when it is a RabbitMQ
+     * connection, otherwise fall back to the connection literally named
+     * `rabbitmq`.
+     */
+    private function resolveRabbitMqConnectionName(Application $app): string
+    {
+        $default = (string) $app['config']->get('queue.default', '');
+
+        if ($default !== '' && $app['config']->get("queue.connections.{$default}.driver") === 'rabbitmq') {
+            return $default;
+        }
+
+        return 'rabbitmq';
+    }
+
+    /**
+     * Seed the package defaults into every RabbitMQ queue connection.
+     *
+     * Previously only `queue.connections.rabbitmq` was seeded, so any second
+     * named RabbitMQ connection started with no defaults at all.
+     */
+    private function configureRabbitMqConnections(): void
+    {
+        $config = $this->app['config'];
+        $defaults = (array) $config->get('rabbitmq', []);
+
+        foreach ($this->rabbitMqConnectionNames() as $name) {
+            $existing = (array) $config->get("queue.connections.{$name}", []);
+
+            $config->set("queue.connections.{$name}", array_merge($defaults, $existing));
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function rabbitMqConnectionNames(): array
+    {
+        // The package's own default connection is always seeded, even when the
+        // application never declared it.
+        $names = ['rabbitmq'];
+
+        foreach ((array) $this->app['config']->get('queue.connections', []) as $name => $connection) {
+            if (is_array($connection) && ($connection['driver'] ?? null) === 'rabbitmq') {
+                $names[] = (string) $name;
+            }
+        }
+
+        return array_values(array_unique($names));
     }
 }

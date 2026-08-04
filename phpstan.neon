@@ -1,30 +1,35 @@
 parameters:
     paths:
         - src
-    
+
     level: 5
-    
+
     ignoreErrors:
+        # ext-amqp is a native extension; its stubs are not always available to
+        # static analysis, and its setters/flags are resolved at runtime.
         - '#Call to an undefined static method AMQP[A-Za-z]+::[a-zA-Z_]+\(\)#'
         - '#Access to an undefined property AMQP[A-Za-z]+::\$[a-zA-Z_]+#'
         - '#Class AMQP[A-Za-z]+ not found#'
-        - '#Parameter .* of method .* has no value type specified in iterable type array#'
-        - '#Method .* has no return type specified#'
-        - '#Property .* has no type specified#'
+
+        # Illuminate\Console\Command inherits SUCCESS/FAILURE/INVALID from
+        # Symfony's Command. Without the Laravel extension loaded PHPStan does
+        # not follow that far up the hierarchy.
+        - '#Access to undefined constant iamfarhad\\LaravelRabbitMQ\\Console\\Commands\\[A-Za-z]+::(SUCCESS|FAILURE|INVALID)#'
+
+        # Illuminate\Queue\Worker's API differs across the supported Laravel
+        # range; the consumer reflects over it rather than assuming one shape.
         - '#Call to an undefined method Illuminate\\Queue\\Worker::[a-zA-Z_]+\(\)#'
-        - '#Negated boolean expression is always false#'
-        - '#Else branch is unreachable because previous condition is always true#'
-        - '#Property .* is never read, only written#'
-        - '#Unreachable statement - code above always terminates#'
-        - '#Left side of && is always true#'
-        - '#Parameter .* expects int, float given#'
-        - '#Default value of the parameter .* is incompatible with type#'
-        - '#Parameter .* should be compatible with parameter#'
+
+        # Deliberately unbounded: --watch runs until interrupted.
+        -
+            message: '#While loop condition is always true#'
+            path: src/Console/Commands/PoolStatsCommand.php
+
         - identifier: missingType.iterableValue
         - identifier: missingType.generics
-    
+
     treatPhpDocTypesAsCertain: false
     reportUnmatchedIgnoredErrors: false
-    
+
     bootstrapFiles:
         - vendor/autoload.php

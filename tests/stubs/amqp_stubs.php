@@ -65,6 +65,10 @@ if (! defined('AMQP_REQUEUE')) {
     define('AMQP_REQUEUE', 16384);
 }
 
+if (! defined('AMQP_MANDATORY')) {
+    define('AMQP_MANDATORY', 1024);
+}
+
 if (! defined('AMQP_EX_TYPE_DIRECT')) {
     define('AMQP_EX_TYPE_DIRECT', 'direct');
 }

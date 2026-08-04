@@ -21,6 +21,10 @@ use Mockery\MockInterface;
  * A terminal failure must reach exactly one sink (issue #28): either the
  * broker's dead-letter routing or the package's own failure exchange, never
  * both.
+ *
+ * Settlement itself is triggered by the JobFailed listener rather than by
+ * markAsFailed() (issue #37); these tests call settleTerminalFailure() directly
+ * so they stay about ownership. SettleFailedDeliveryTest covers the wiring.
  */
 class FailureOwnershipTest extends UnitTestCase
 {
@@ -49,6 +53,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -67,6 +72,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -84,6 +90,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -102,6 +109,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -117,6 +125,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -136,6 +145,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue, connectionName: 'rabbitmq-secondary');
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -153,6 +163,7 @@ class FailureOwnershipTest extends UnitTestCase
         // queue identifies the message as already living in the failure sink.
         $job = $this->makeJob($queue, queueName: 'failed_messages');
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -168,6 +179,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue, exchangeName: 'failed_messages');
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -186,6 +198,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }
@@ -224,6 +237,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         // The lifecycle continues — Laravel still gets to persist the record.
         $this->assertTrue($job->hasFailed());
@@ -247,6 +261,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
         $this->assertCount(1, $reported);
@@ -261,6 +276,7 @@ class FailureOwnershipTest extends UnitTestCase
 
         $job = $this->makeJob($queue);
         $job->markAsFailed();
+        $job->settleTerminalFailure();
 
         $this->assertTrue($job->hasFailed());
     }

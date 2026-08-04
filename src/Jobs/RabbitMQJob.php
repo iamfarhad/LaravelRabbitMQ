@@ -6,6 +6,7 @@ namespace iamfarhad\LaravelRabbitMQ\Jobs;
 
 use AMQPEnvelope;
 use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
+use iamfarhad\LaravelRabbitMQ\Jobs\Listeners\SettleFailedDelivery;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -31,6 +32,12 @@ class RabbitMQJob extends Job implements JobContract
     private const DEFAULT_FAILED_EXCHANGE = 'failed_messages';
 
     protected array $decoded = [];
+
+    /**
+     * Guards finalizeTerminalFailure() so a delivery is settled exactly once,
+     * however many times the failure lifecycle is entered.
+     */
+    private bool $terminalFailureSettled = false;
 
     public function __construct(
         Container $container,
@@ -96,10 +103,6 @@ class RabbitMQJob extends Job implements JobContract
 
     public function routingKey(): ?string
     {
-        if (! method_exists($this->amqpEnvelope, 'getRoutingKey')) {
-            return null;
-        }
-
         $routingKey = $this->amqpEnvelope->getRoutingKey();
 
         return $routingKey !== '' ? $routingKey : null;
@@ -191,29 +194,63 @@ class RabbitMQJob extends Job implements JobContract
     }
 
     /**
-     * A terminal failure has exactly one owner. The message is always rejected
-     * without requeue — which hands it to the queue's configured
-     * `x-dead-letter-exchange`, if any — and only an explicit `exchange`
-     * ownership mode additionally publishes the package's own failure copy.
+     * Marks the job failed and nothing more.
+     *
+     * Settlement deliberately does not happen here. Laravel calls
+     * markAsFailed() at the very top of Job::fail(), before `delete()`,
+     * before `failed($e)`, and before the JobFailed dispatch whose listener
+     * writes the authoritative `failed_jobs` record. Rejecting here could
+     * therefore remove the delivery from the queue while that record was never
+     * persisted, destroying the only durable explanation of the failure
+     * (issue #37). @see settleTerminalFailure() for where settlement happens.
      */
     public function markAsFailed(): void
     {
         parent::markAsFailed();
 
-        // A settlement failure must not escape this method. Laravel calls
-        // markAsFailed() *before* the try/finally in Job::fail() that dispatches
-        // JobFailed, so throwing here would abort the lifecycle that writes the
-        // authoritative failed-job record — losing the durable explanation for a
-        // failure that operators need (issue #32). Report it and let the broker
-        // redeliver the unresolved delivery instead.
+        // Attached here, at the moment a failure begins, so the listener lands
+        // *after* every listener already registered — in particular the one that
+        // writes `failed_jobs`. Registering it any earlier (at boot, or when the
+        // connection is resolved) would put it first and reintroduce issue #37.
+        SettleFailedDelivery::ensureRegistered($this->container);
+    }
+
+    /**
+     * Settle a permanently failed delivery, exactly once.
+     *
+     * Called from the JobFailed listener registered by markAsFailed(), which
+     * lands *after* the listener that writes `failed_jobs`. That ordering is the whole
+     * point: if the failed-job provider throws, the event dispatch aborts before
+     * reaching this listener, so the delivery is never settled and the broker
+     * redelivers it. A failure with no durable record is worse than a redelivery
+     * (issue #37).
+     *
+     * A terminal failure has exactly one owner. The message is always rejected
+     * without requeue — which hands it to the queue's configured
+     * `x-dead-letter-exchange`, if any — and only an explicit `exchange`
+     * ownership mode additionally publishes the package's own failure copy. The
+     * copy is published first, so a failure to publish it cannot leave the
+     * original already discarded.
+     */
+    public function settleTerminalFailure(): void
+    {
+        if ($this->terminalFailureSettled) {
+            return;
+        }
+
+        $this->terminalFailureSettled = true;
+
+        if ($this->failureOwner() === self::FAILURE_OWNER_EXCHANGE) {
+            $this->convertMessageToFailed();
+        }
+
+        // The failed-job record is persisted by now, so a settlement failure no
+        // longer risks losing it. Report it and let the broker redeliver the
+        // unresolved delivery.
         try {
             $this->rabbitQueue->reject($this);
         } catch (SettlementException $exception) {
             $this->reportSettlementFailure($exception);
-        }
-
-        if ($this->failureOwner() === self::FAILURE_OWNER_EXCHANGE) {
-            $this->convertMessageToFailed();
         }
     }
 

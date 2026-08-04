@@ -28,6 +28,22 @@ class RabbitMQConnector implements ConnectorInterface
      */
     private static array $poolManagers = [];
 
+    /**
+     * Dispatchers that already have this connector's listeners attached, keyed
+     * by object id. connect() runs on every queue-connection resolution, so
+     * without this guard each resolution stacked another WorkerStopping (and,
+     * under Octane, RequestTerminated) closure — unbounded listener growth and
+     * one closeAll() per accumulated listener on every request.
+     *
+     * @var array<int, true>
+     */
+    private static array $cleanupListenersRegistered = [];
+
+    /**
+     * @var array<int, true>
+     */
+    private static array $horizonListenersRegistered = [];
+
     public function __construct(private Dispatcher $dispatcher) {}
 
     /**
@@ -118,11 +134,27 @@ class RabbitMQConnector implements ConnectorInterface
             return;
         }
 
+        $dispatcherId = spl_object_id($this->dispatcher);
+
+        if (isset(self::$horizonListenersRegistered[$dispatcherId])) {
+            return;
+        }
+
+        self::$horizonListenersRegistered[$dispatcherId] = true;
+
         $this->dispatcher->listen(JobFailed::class, RabbitMQFailedEvent::class);
     }
 
     private function registerCleanupListeners(): void
     {
+        $dispatcherId = spl_object_id($this->dispatcher);
+
+        if (isset(self::$cleanupListenersRegistered[$dispatcherId])) {
+            return;
+        }
+
+        self::$cleanupListenersRegistered[$dispatcherId] = true;
+
         $this->dispatcher->listen(WorkerStopping::class, fn () => self::resetPoolManager());
 
         if ($this->shouldResetPoolAfterOctaneRequest()) {

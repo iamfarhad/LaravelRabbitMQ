@@ -10,12 +10,6 @@ use Mockery;
 
 class ConnectionPoolTest extends UnitTestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->skipIfAmqpExtensionLoaded();
-    }
-
     public function testLazyPoolDoesNotCreateMinimumConnectionsOnConstruction(): void
     {
         $factory = Mockery::mock(ConnectionFactory::class);

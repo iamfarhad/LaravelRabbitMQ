@@ -12,6 +12,10 @@ use Exception;
 
 class RpcServer
 {
+    private const POLL_MIN_INTERVAL_US = 1000;
+
+    private const POLL_MAX_INTERVAL_US = 50000;
+
     private AMQPQueue $queue;
 
     private bool $running = false;
@@ -42,21 +46,32 @@ class RpcServer
     public function listen(callable $callback): void
     {
         $this->running = true;
+        $interval = self::POLL_MIN_INTERVAL_US;
 
         while ($this->running) {
             $envelope = $this->queue->get(AMQP_NOPARAM);
 
             if ($envelope instanceof AMQPEnvelope) {
+                $interval = self::POLL_MIN_INTERVAL_US;
+
                 try {
                     $this->processRequest($envelope, $callback);
                     $this->queue->ack($envelope->getDeliveryTag());
                 } catch (Exception $e) {
+                    // Not requeued: the caller is waiting on a reply that will
+                    // never come, and an endlessly redelivered bad request
+                    // would spin this loop forever.
                     $this->queue->nack($envelope->getDeliveryTag());
-                    // Log error or handle as needed
                 }
-            } else {
-                usleep(100000); // 100ms
+
+                continue;
             }
+
+            // Escalating idle backoff: a request already waiting is picked up in
+            // about a millisecond instead of the previous flat 100ms, while an
+            // idle server still backs off rather than spinning on basic.get.
+            usleep($interval);
+            $interval = min($interval * 2, self::POLL_MAX_INTERVAL_US);
         }
     }
 

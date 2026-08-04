@@ -13,11 +13,10 @@ use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableRabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\PreserveGlobalState;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use ReflectionProperty;
 
 /**
@@ -27,11 +26,9 @@ use ReflectionProperty;
  * RabbitMQ. Deliveries are also never retried on a replacement channel, because
  * a delivery tag is scoped to the channel that delivered the message.
  *
- * `overload:` instance mocking of AMQPQueue requires the real extension to be
- * absent, hence the process isolation and the skip guard.
+ * AMQPQueue creation is redirected through TestableRabbitQueue's factory seam,
+ * so these run with the real ext-amqp loaded.
  */
-#[RunTestsInSeparateProcesses]
-#[PreserveGlobalState(false)]
 class DeliverySettlementTest extends UnitTestCase
 {
     use MockeryPHPUnitIntegration;
@@ -39,15 +36,13 @@ class DeliverySettlementTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-
-        $this->skipIfAmqpExtensionLoaded();
     }
 
     public function testSuccessfulAckSettlesTheDeliveryExactlyOnceOnTheDeliveringChannel(): void
     {
-        $queueTemplate = $this->overloadAmqpQueue();
-        $queueTemplate->shouldReceive('setName')->once()->with('orders');
-        $queueTemplate->shouldReceive('ack')->once()->with(42);
+        $amqpQueue = $this->amqpQueueDouble();
+        $amqpQueue->shouldReceive('setName')->once()->with('orders');
+        $amqpQueue->shouldReceive('ack')->once()->with(42);
 
         $queue = $this->queueWithLiveChannel($channel);
 
@@ -58,9 +53,9 @@ class DeliverySettlementTest extends UnitTestCase
 
     public function testSuccessfulRejectDiscardsWithoutRequeueByDefault(): void
     {
-        $queueTemplate = $this->overloadAmqpQueue();
-        $queueTemplate->shouldReceive('setName')->once();
-        $queueTemplate->shouldReceive('reject')->once()->with(7, AMQP_NOPARAM);
+        $amqpQueue = $this->amqpQueueDouble();
+        $amqpQueue->shouldReceive('setName')->once();
+        $amqpQueue->shouldReceive('reject')->once()->with(7, AMQP_NOPARAM);
 
         $queue = $this->queueWithLiveChannel($channel);
 
@@ -71,9 +66,9 @@ class DeliverySettlementTest extends UnitTestCase
 
     public function testSuccessfulRejectPreservesRequeueSemantics(): void
     {
-        $queueTemplate = $this->overloadAmqpQueue();
-        $queueTemplate->shouldReceive('setName')->once();
-        $queueTemplate->shouldReceive('reject')->once()->with(7, AMQP_REQUEUE);
+        $amqpQueue = $this->amqpQueueDouble();
+        $amqpQueue->shouldReceive('setName')->once();
+        $amqpQueue->shouldReceive('reject')->once()->with(7, AMQP_REQUEUE);
 
         $queue = $this->queueWithLiveChannel($channel);
 
@@ -120,9 +115,9 @@ class DeliverySettlementTest extends UnitTestCase
         // message, so the original text has to survive the wrapping.
         $original = new AMQPConnectionException('Socket error: Lost connection to broker');
 
-        $queueTemplate = $this->overloadAmqpQueue();
-        $queueTemplate->shouldReceive('setName')->once();
-        $queueTemplate->shouldReceive('ack')->once()->andThrow($original);
+        $amqpQueue = $this->amqpQueueDouble();
+        $amqpQueue->shouldReceive('setName')->once();
+        $amqpQueue->shouldReceive('ack')->once()->andThrow($original);
 
         $queue = $this->queueWithLiveChannel($channel, expectRelease: true);
 
@@ -158,7 +153,7 @@ class DeliverySettlementTest extends UnitTestCase
         $poolManager->shouldReceive('getChannel')->once()->andReturn($deadChannel);
         $poolManager->shouldReceive('releaseChannel')->once()->with($deadChannel);
 
-        $queue = new RabbitQueue($poolManager, 'default');
+        $queue = TestableRabbitQueue::make($poolManager, 'default');
         $queue->getChannel();
 
         $this->expectException(SettlementException::class);
@@ -169,9 +164,9 @@ class DeliverySettlementTest extends UnitTestCase
 
     private function assertSettlementFailureIsReported(string $operation, \Throwable $brokerFailure): void
     {
-        $queueTemplate = $this->overloadAmqpQueue();
-        $queueTemplate->shouldReceive('setName')->once();
-        $queueTemplate->shouldReceive($operation)->once()->andThrow($brokerFailure);
+        $amqpQueue = $this->amqpQueueDouble();
+        $amqpQueue->shouldReceive('setName')->once();
+        $amqpQueue->shouldReceive($operation)->once()->andThrow($brokerFailure);
 
         $queue = $this->queueWithLiveChannel($channel, expectRelease: true);
 
@@ -191,12 +186,15 @@ class DeliverySettlementTest extends UnitTestCase
         $this->assertNull($this->cachedChannel($queue));
     }
 
-    private function overloadAmqpQueue(): Mockery\MockInterface
-    {
-        $queueTemplate = Mockery::mock('overload:AMQPQueue');
-        $queueTemplate->shouldReceive('__construct');
+    /**
+     * The AMQPQueue double the driver under test will be handed. Stored on the
+     * instance so queueWithLiveChannel() can wire it into the factory seam.
+     */
+    private ?Mockery\MockInterface $amqpQueueDouble = null;
 
-        return $queueTemplate;
+    private function amqpQueueDouble(): Mockery\MockInterface
+    {
+        return $this->amqpQueueDouble = Mockery::mock(\AMQPQueue::class);
     }
 
     private function queueWithLiveChannel(?AMQPChannel &$channel, bool $expectRelease = false): RabbitQueue
@@ -217,7 +215,13 @@ class DeliverySettlementTest extends UnitTestCase
             $poolManager->shouldNotReceive('releaseChannel');
         }
 
-        $queue = new RabbitQueue($poolManager, 'default');
+        $queue = TestableRabbitQueue::make($poolManager, 'default');
+
+        if ($this->amqpQueueDouble !== null) {
+            $double = $this->amqpQueueDouble;
+            $queue->useQueueFactory(fn (): \AMQPQueue => $double);
+        }
+
         $queue->getChannel();
 
         return $queue;
@@ -237,6 +241,7 @@ class DeliverySettlementTest extends UnitTestCase
 
     private function cachedChannel(RabbitQueue $queue): ?AMQPChannel
     {
-        return (new ReflectionProperty($queue, 'amqpChannel'))->getValue($queue);
+        // $amqpChannel is private to RabbitQueue, so reflect on the declaring class.
+        return (new ReflectionProperty(RabbitQueue::class, 'amqpChannel'))->getValue($queue);
     }
 }

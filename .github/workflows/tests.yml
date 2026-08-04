@@ -60,6 +60,21 @@ jobs:
             testbench: '10.*'
             dependency-version: prefer-lowest
             rabbitmq: '3.13-management'
+          - php: '8.2'
+            laravel: '10.*'
+            testbench: '8.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.3'
+            laravel: '11.*'
+            testbench: '9.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.2'
+            laravel: '11.*'
+            testbench: '9.*'
+            dependency-version: prefer-lowest
+            rabbitmq: '3.13-management'
           - php: '8.5'
             laravel: '13.*'
             testbench: '11.*'
@@ -113,6 +128,10 @@ jobs:
       - name: Run formatting check
         if: matrix.dependency-version != 'prefer-lowest'
         run: composer format-test
+
+      - name: Run static analysis
+        if: matrix.dependency-version != 'prefer-lowest'
+        run: composer analyse
 
       - name: Clear PHPUnit cache
         run: |

@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Console\Commands;
 
+use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
+use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Queue;
+use Throwable;
 
 class PoolStatsCommand extends Command
 {
     /**
      * The name and signature of the console command.
      */
-    protected $signature = 'rabbitmq:pool-stats 
+    protected $signature = 'rabbitmq:pool-stats
+                           {connection? : The RabbitMQ queue connection to inspect}
                            {--json : Output stats in JSON format}
                            {--watch : Continuously watch stats (press Ctrl+C to stop)}
                            {--interval=5 : Refresh interval in seconds when watching}';
@@ -35,15 +40,59 @@ class PoolStatsCommand extends Command
     }
 
     /**
+     * Resolve the pool for this process, creating it if this artisan invocation
+     * has not touched the queue connection yet.
+     *
+     * Pools are per-process, so without this a fresh `artisan` run had no pool
+     * to report on at all and the command only ever said so.
+     */
+    private function resolvePoolManager(): ?PoolManager
+    {
+        $connectionName = $this->argument('connection') !== null
+            ? (string) $this->argument('connection')
+            : null;
+
+        if (($poolManager = RabbitMQConnector::getPoolManager($connectionName)) !== null) {
+            return $poolManager;
+        }
+
+        try {
+            $connection = Queue::connection($connectionName ?? $this->defaultConnectionName());
+
+            if (! $connection instanceof RabbitQueue) {
+                $this->error(sprintf(
+                    'Queue connection [%s] is not a RabbitMQ connection.',
+                    $connectionName ?? $this->defaultConnectionName()
+                ));
+
+                return null;
+            }
+        } catch (Throwable $exception) {
+            $this->error('Could not resolve a RabbitMQ queue connection: '.$exception->getMessage());
+
+            return null;
+        }
+
+        return RabbitMQConnector::getPoolManager($connectionName);
+    }
+
+    private function defaultConnectionName(): string
+    {
+        $default = (string) config('queue.default', '');
+
+        return $default !== '' && config("queue.connections.{$default}.driver") === 'rabbitmq'
+            ? $default
+            : 'rabbitmq';
+    }
+
+    /**
      * Show pool stats once
      */
     private function showStats(): int
     {
-        $poolManager = RabbitMQConnector::getPoolManager();
+        $poolManager = $this->resolvePoolManager();
 
         if (! $poolManager) {
-            $this->error('No active RabbitMQ pool manager found. Make sure a RabbitMQ connection is active.');
-
             return 1;
         }
 
@@ -62,8 +111,11 @@ class PoolStatsCommand extends Command
         if ($poolManager->isHealthy()) {
             $this->info('🟢 Pool Status: Healthy');
         } else {
-            $this->warn('🟡 Pool Status: Warning - Check connection count');
+            $this->warn('🟡 Pool Status: Exhausted - every connection is checked out and the pool is at max_connections');
         }
+
+        $this->newLine();
+        $this->comment('Pools are per-process: these numbers describe this artisan process, not your workers.');
 
         return 0;
     }
@@ -73,46 +125,37 @@ class PoolStatsCommand extends Command
      */
     private function watchStats(): int
     {
-        $interval = (int) $this->option('interval');
+        $interval = max(1, (int) $this->option('interval'));
+
+        $poolManager = $this->resolvePoolManager();
+
+        if (! $poolManager) {
+            return 1;
+        }
 
         $this->info("Watching RabbitMQ pool stats (refresh every {$interval} seconds)");
         $this->info('Press Ctrl+C to stop');
         $this->newLine();
 
-        try {
-            while (true) {
-                // Clear screen
-                system('clear');
+        while (true) {
+            // ANSI clear-and-home rather than shelling out to clear(1), which
+            // is not available everywhere and costs a process per tick.
+            $this->output->write("\033[2J\033[H");
 
-                $this->info('RabbitMQ Pool Statistics - '.now()->format('Y-m-d H:i:s'));
-                $this->info(str_repeat('=', 60));
+            $this->info('RabbitMQ Pool Statistics - '.now()->format('Y-m-d H:i:s'));
+            $this->info(str_repeat('=', 60));
 
-                $poolManager = RabbitMQConnector::getPoolManager();
+            $this->displayFormattedStats($poolManager->getStats());
 
-                if (! $poolManager) {
-                    $this->error('No active RabbitMQ pool manager found.');
-                } else {
-                    $stats = $poolManager->getStats();
-                    $this->displayFormattedStats($stats);
-
-                    // Show health status
-                    $this->newLine();
-                    if ($poolManager->isHealthy()) {
-                        $this->info('🟢 Pool Status: Healthy');
-                    } else {
-                        $this->warn('🟡 Pool Status: Warning - Check connection count');
-                    }
-                }
-
-                sleep($interval);
+            $this->newLine();
+            if ($poolManager->isHealthy()) {
+                $this->info('🟢 Pool Status: Healthy');
+            } else {
+                $this->warn('🟡 Pool Status: Exhausted - every connection is checked out and the pool is at max_connections');
             }
-        } catch (\Exception $e) {
-            $this->error('Error watching stats: '.$e->getMessage());
 
-            return 1;
+            sleep($interval);
         }
-
-        return 0; // This will never be reached, but satisfies the linter
     }
 
     /**

@@ -7,7 +7,7 @@ This package follows the supported PHP and Laravel versions declared in `compose
 | Component | Supported | CI coverage | Notes |
 | --- | --- | --- | --- |
 | PHP | 8.2, 8.3, 8.4, 8.5 | Yes | PHP 8.5 is included in the test matrix to catch upcoming/runtime compatibility issues early. |
-| Laravel | 10.x, 11.x, 12.x, 13.x | Yes | Support is provided through `illuminate/queue` and `illuminate/support`. |
+| Laravel | 10.x, 11.x, 12.x, 13.x | Yes | Support is provided through `illuminate/queue` and `illuminate/support`. See the per-version CI coverage below. |
 | RabbitMQ | 3.13, 4.x | Yes | These are the actively tested broker lines. |
 | RabbitMQ | 3.8 - 3.12 | Best effort | Expected to work for common AMQP 0-9-1 queue usage, but not part of the primary CI matrix. |
 | RabbitMQ | < 3.8 | No | Upgrade RabbitMQ before opening compatibility bugs. |
@@ -18,12 +18,16 @@ This package follows the supported PHP and Laravel versions declared in `compose
 
 ## Laravel / PHP support matrix
 
-| Laravel | PHP 8.2 | PHP 8.3 | PHP 8.4 | PHP 8.5 | Testbench |
-| --- | --- | --- | --- | --- | --- |
-| 10.x | Supported | Supported | Not tested | Not tested | 8.x |
-| 11.x | Supported | Supported | Supported | Supported | 9.x |
-| 12.x | Supported | Supported | Supported | Supported | 10.x |
-| 13.x | Not tested | Supported | Supported | Supported | 11.x |
+| Laravel | PHP 8.2 | PHP 8.3 | PHP 8.4 | PHP 8.5 | Testbench | In CI |
+| --- | --- | --- | --- | --- | --- | --- |
+| 10.x | Supported | Supported | Not tested | Not tested | 8.x | PHP 8.2 |
+| 11.x | Supported | Supported | Supported | Supported | 9.x | PHP 8.2, 8.3 |
+| 12.x | Supported | Supported | Supported | Supported | 10.x | PHP 8.2, 8.3, 8.4, 8.5 |
+| 13.x | Not supported (Laravel 13 requires PHP >= 8.3) | Supported | Supported | Supported | 11.x | PHP 8.3, 8.4, 8.5 |
+
+The "In CI" column lists the PHP versions each Laravel line is actually built
+against on every pull request. Cells marked "Supported" without CI coverage are
+expected to work and are fixed when reported, but are not verified per commit.
 
 ## RabbitMQ support matrix
 

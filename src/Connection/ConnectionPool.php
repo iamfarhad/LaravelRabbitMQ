@@ -37,11 +37,19 @@ class ConnectionPool
 
         $poolConfig = $config['pool'] ?? [];
         $hostConfig = $this->firstHostConfig($config['hosts'] ?? []);
-        $this->maxConnections = $poolConfig['max_connections'] ?? 10;
-        $this->minConnections = $poolConfig['min_connections'] ?? 2;
-        $this->lazy = (bool) ($poolConfig['lazy'] ?? $hostConfig['lazy'] ?? false);
-        $this->healthCheckEnabled = $poolConfig['health_check_enabled'] ?? true;
-        $this->healthCheckInterval = $poolConfig['health_check_interval'] ?? 30;
+
+        // Cast explicitly: env() only coerces true/false/null/empty, so any
+        // numeric value set in .env arrives here as a string and would be a
+        // TypeError against these typed properties.
+        $this->maxConnections = max(1, (int) ($poolConfig['max_connections'] ?? 10));
+        $this->minConnections = max(0, (int) ($poolConfig['min_connections'] ?? 2));
+
+        // Lazy by default: opening min_connections sockets as a side effect of
+        // merely resolving the queue connection hits every artisan one-shot and
+        // every FPM request that never publishes anything.
+        $this->lazy = (bool) ($poolConfig['lazy'] ?? $hostConfig['lazy'] ?? true);
+        $this->healthCheckEnabled = (bool) ($poolConfig['health_check_enabled'] ?? true);
+        $this->healthCheckInterval = max(1, (int) ($poolConfig['health_check_interval'] ?? 30));
 
         if (! $this->lazy) {
             $this->initializePool();
@@ -65,7 +73,7 @@ class ConnectionPool
             }
 
             $this->factory->closeConnection($connection);
-            $this->currentConnections--;
+            $this->currentConnections = max(0, $this->currentConnections - 1);
         }
 
         if ($this->currentConnections < $this->maxConnections) {
@@ -92,29 +100,41 @@ class ConnectionPool
         if ($this->factory->isConnectionAlive($connection)) {
             $this->availableConnections->enqueue($connection);
         } else {
-            $this->currentConnections--;
+            // Also tear the socket down: dropping only the counter leaves the
+            // underlying resource pinned until GC.
+            $this->factory->closeConnection($connection);
+            $this->currentConnections = max(0, $this->currentConnections - 1);
         }
     }
 
     public function closeConnection(AMQPConnection $connection): void
     {
         $connectionId = spl_object_id($connection);
+        $tracked = isset($this->activeConnections[$connectionId]);
 
-        if (isset($this->activeConnections[$connectionId])) {
-            unset($this->activeConnections[$connectionId]);
-        }
+        unset($this->activeConnections[$connectionId]);
 
         $tempQueue = new SplQueue;
         while (! $this->availableConnections->isEmpty()) {
             $conn = $this->availableConnections->dequeue();
-            if (spl_object_id($conn) !== $connectionId) {
-                $tempQueue->enqueue($conn);
+            if (spl_object_id($conn) === $connectionId) {
+                $tracked = true;
+
+                continue;
             }
+
+            $tempQueue->enqueue($conn);
         }
         $this->availableConnections = $tempQueue;
 
         $this->factory->closeConnection($connection);
-        $this->currentConnections--;
+
+        // Only count down for a connection this pool was actually tracking, so
+        // a repeated or foreign close cannot drive the counter negative and
+        // silently raise the effective connection ceiling.
+        if ($tracked) {
+            $this->currentConnections = max(0, $this->currentConnections - 1);
+        }
     }
 
     public function closeAll(): void
@@ -192,7 +212,7 @@ class ConnectionPool
                 $healthyConnections->enqueue($connection);
             } else {
                 $this->factory->closeConnection($connection);
-                $this->currentConnections--;
+                $this->currentConnections = max(0, $this->currentConnections - 1);
             }
         }
 

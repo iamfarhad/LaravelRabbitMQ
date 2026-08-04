@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Console\Commands;
 
-use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use iamfarhad\LaravelRabbitMQ\Console\Commands\Concerns\ResolvesRabbitQueue;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Queue;
 
 class QueueDeclareCommand extends Command
 {
+    use ResolvesRabbitQueue;
+
     protected $signature = 'rabbitmq:queue-declare
                             {name : Queue name}
+                            {--connection= : The RabbitMQ queue connection to use}
                             {--durable=1 : Declare as durable}
                             {--auto-delete=0 : Declare as auto-delete}
                             {--lazy=0 : Use lazy queue mode}
@@ -22,11 +24,9 @@ class QueueDeclareCommand extends Command
 
     public function handle(): int
     {
-        $connection = Queue::connection('rabbitmq');
+        $connection = $this->resolveRabbitQueue();
 
-        if (! $connection instanceof RabbitQueue) {
-            $this->error('The rabbitmq queue connection is not configured.');
-
+        if ($connection === null) {
             return self::FAILURE;
         }
 

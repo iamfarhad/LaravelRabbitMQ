@@ -12,12 +12,6 @@ use Mockery;
 
 class RabbitQueueTest extends UnitTestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->skipIfAmqpExtensionLoaded();
-    }
-
     public function testCorrelationIdGeneration(): void
     {
         $correlationId = MessageHelpers::generateCorrelationId();
@@ -114,18 +108,23 @@ class RabbitQueueTest extends UnitTestCase
         $mockConnection = Mockery::mock(AMQPConnection::class);
         $mockChannel = Mockery::mock(AMQPChannel::class);
 
-        $mockPoolManager->shouldReceive('getConnection')
-            ->once()
-            ->andReturn($mockConnection);
+        // getConnection() reports the connection behind the channel in use.
+        // Checking one out of the connection pool instead leaked it, because
+        // nothing ever handed it back.
+        $mockPoolManager->shouldNotReceive('getConnection');
 
         $mockPoolManager->shouldReceive('getChannel')
             ->once()
             ->andReturn($mockChannel);
 
+        $mockChannel->shouldReceive('isConnected')->andReturn(true);
+        $mockChannel->shouldReceive('getConnection')->andReturn($mockConnection);
+        $mockConnection->shouldReceive('isConnected')->andReturn(true);
+
         $queue = new RabbitQueue($mockPoolManager, 'test-queue');
 
-        $connection = $queue->getConnection();
         $channel = $queue->getChannel();
+        $connection = $queue->getConnection();
 
         $this->assertSame($mockConnection, $connection);
         $this->assertSame($mockChannel, $channel);

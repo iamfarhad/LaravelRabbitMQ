@@ -7,6 +7,7 @@ namespace iamfarhad\LaravelRabbitMQ\Connection;
 use AMQPConnection;
 use AMQPConnectionException;
 use iamfarhad\LaravelRabbitMQ\Exceptions\ConnectionException;
+use iamfarhad\LaravelRabbitMQ\Support\ExponentialBackoff;
 
 class ConnectionFactory
 {
@@ -14,13 +15,17 @@ class ConnectionFactory
 
     private int $maxRetries;
 
-    private int|float $retryDelay;
+    private int $retryDelay;
 
     public function __construct(array $config)
     {
         $this->config = $config;
-        $this->maxRetries = $config['pool']['max_retries'] ?? 3;
-        $this->retryDelay = $config['pool']['retry_delay'] ?? 1000;
+
+        // Cast explicitly: env() only coerces true/false/null/empty, so any
+        // numeric value set in .env arrives here as a string and would be a
+        // TypeError against these typed properties.
+        $this->maxRetries = max(1, (int) ($config['pool']['max_retries'] ?? 3));
+        $this->retryDelay = max(0, (int) ($config['pool']['retry_delay'] ?? 1000));
     }
 
     public function createConnection(): AMQPConnection
@@ -29,34 +34,48 @@ class ConnectionFactory
         // and cycled through by attempt, so a retry targets a different host
         // instead of hammering the one that just failed.
         $hostConfigs = $this->resolveHostConfigsForFailover();
-        $retryDelay = $this->retryDelay;
+
+        // Every configured host deserves at least one attempt, even when
+        // max_retries is lower than the number of hosts.
+        $maxAttempts = max($this->maxRetries, count($hostConfigs));
+        $backoff = new ExponentialBackoff($this->retryDelay, 30000, 2.0, true);
         $attempt = 0;
         $lastException = null;
 
-        while ($attempt < $this->maxRetries) {
+        while ($attempt < $maxAttempts) {
             $hostConfig = $hostConfigs[$attempt % count($hostConfigs)];
 
             try {
-                $connection = new AMQPConnection($this->buildConnectionConfig($hostConfig));
+                $connection = $this->newAmqpConnection($this->buildConnectionConfig($hostConfig));
                 $connection->connect();
 
                 return $connection;
             } catch (AMQPConnectionException $e) {
                 $lastException = $e;
-                $attempt++;
 
-                if ($attempt < $this->maxRetries) {
-                    usleep($this->retryDelayInMicroseconds($retryDelay));
-                    $retryDelay *= 2;
+                if (++$attempt < $maxAttempts) {
+                    // Jittered so a fleet reconnecting after a broker restart
+                    // does not synchronise into a thundering herd.
+                    usleep(max(0, $backoff->getDelayForAttempt($attempt - 1)) * 1000);
                 }
             }
         }
 
         throw new ConnectionException(
-            sprintf('Failed to connect to RabbitMQ after %d attempts. Last error: %s', $this->maxRetries, $lastException?->getMessage() ?? 'Unknown error'),
+            sprintf('Failed to connect to RabbitMQ after %d attempts. Last error: %s', $maxAttempts, $lastException?->getMessage() ?? 'Unknown error'),
             $lastException?->getCode() ?? 0,
             $lastException
         );
+    }
+
+    /**
+     * ext-amqp object-creation seam; see RabbitQueue for the rationale.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    protected function newAmqpConnection(array $config): AMQPConnection
+    {
+        return new AMQPConnection($config);
     }
 
     public function buildConnectionConfigForTesting(): array
@@ -70,20 +89,30 @@ class ConnectionFactory
         $transport = $this->resolveTransport($hostConfig);
 
         $config = [
-            'host' => $hostConfig['host'] ?? '127.0.0.1',
-            'port' => $hostConfig['port'] ?? ($transport === 'tcp' ? 5672 : 5671),
-            'login' => $hostConfig['user'] ?? 'guest',
-            'password' => $hostConfig['password'] ?? 'guest',
-            'vhost' => $hostConfig['vhost'] ?? '/',
+            'host' => (string) ($hostConfig['host'] ?? '127.0.0.1'),
+            // Cast: a port read straight from env() is a string, which ext-amqp
+            // will not accept.
+            'port' => (int) ($hostConfig['port'] ?? ($transport === 'tcp' ? 5672 : 5671)),
+            'login' => (string) ($hostConfig['user'] ?? 'guest'),
+            'password' => (string) ($hostConfig['password'] ?? 'guest'),
+            'vhost' => (string) ($hostConfig['vhost'] ?? '/'),
         ];
 
+        // The label RabbitMQ shows for this connection in the management UI and
+        // in `rabbitmqctl list_connections`. Previously this was set to the
+        // transport string ("ssl"), which made every TLS connection anonymous.
+        $connectionName = $hostConfig['connection_name'] ?? $this->config['connection_name'] ?? null;
+
+        if (is_string($connectionName) && $connectionName !== '') {
+            $config['connection_name'] = $connectionName;
+        }
+
         if ($transport !== 'tcp') {
-            $config['connection_name'] = $transport;
             $config['ssl'] = true;
             $config['cacert'] = $options['ssl_options']['cafile'] ?? null;
             $config['cert'] = $options['ssl_options']['local_cert'] ?? null;
             $config['key'] = $options['ssl_options']['local_key'] ?? null;
-            $config['verify'] = $options['ssl_options']['verify_peer'] ?? true;
+            $config['verify'] = (bool) ($options['ssl_options']['verify_peer'] ?? true);
         }
 
         $optionalParams = [
@@ -152,11 +181,6 @@ class ConnectionFactory
     private function isListOfHosts(array $hosts): bool
     {
         return array_is_list($hosts) && isset($hosts[0]) && is_array($hosts[0]);
-    }
-
-    private function retryDelayInMicroseconds(int|float $retryDelay): int
-    {
-        return max(0, (int) round($retryDelay * 1000));
     }
 
     public function isConnectionAlive(AMQPConnection $connection): bool
