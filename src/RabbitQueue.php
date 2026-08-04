@@ -294,7 +294,11 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
                 $amqpQueue->setFlags(AMQP_PASSIVE);
 
                 return $amqpQueue->declareQueue();
-            } catch (AMQPChannelException $exception) {
+            } catch (AMQPChannelException|AMQPQueueException $exception) {
+                // ext-amqp reports NOT_FOUND on a passive declare as an
+                // AMQPQueueException, so catching only AMQPChannelException made
+                // size() throw for a queue that simply does not exist yet —
+                // which Horizon polls for metrics.
                 if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
                     $this->releaseChannel();
 

@@ -166,10 +166,12 @@ final class ConsumeCommand extends WorkCommand
         // package's default connection block for single-connection setups.
         $connection = (string) ($this->argument('connection') ?: config('queue.default', 'rabbitmq'));
 
-        return (string) (
-            config("queue.connections.{$connection}.options.queue.consume_mode")
-            ?? config('queue.connections.rabbitmq.options.queue.consume_mode', 'poll')
-        );
+        $configured = config("queue.connections.{$connection}.options.queue.consume_mode")
+            ?? config('queue.connections.rabbitmq.options.queue.consume_mode');
+
+        // A key present but explicitly null yields null from config(), not the
+        // default, so normalise rather than handing back an empty string.
+        return is_string($configured) && $configured !== '' ? $configured : 'poll';
     }
 
     /**
