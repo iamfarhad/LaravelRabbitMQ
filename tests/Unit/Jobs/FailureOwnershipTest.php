@@ -6,11 +6,13 @@ namespace iamfarhad\LaravelRabbitMQ\Tests\Unit\Jobs;
 
 use AMQPConnection;
 use AMQPEnvelope;
+use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
@@ -203,6 +205,74 @@ class FailureOwnershipTest extends UnitTestCase
         $job->release(0);
 
         $this->assertFalse($job->hasFailed());
+    }
+
+    /**
+     * Laravel calls markAsFailed() before the try/finally in Job::fail() that
+     * dispatches JobFailed, so a settlement failure escaping here would suppress
+     * the authoritative failed-job record entirely (issue #32).
+     */
+    public function testSettlementFailureIsReportedWithoutAbortingTheFailureLifecycle(): void
+    {
+        $reported = [];
+        $this->container->instance(ExceptionHandler::class, $this->exceptionHandler($reported));
+
+        $queue = $this->rabbitQueue();
+        $queue->shouldReceive('reject')
+            ->once()
+            ->andThrow(SettlementException::channelUnusable('reject', 'default'));
+
+        $job = $this->makeJob($queue);
+        $job->markAsFailed();
+
+        // The lifecycle continues — Laravel still gets to persist the record.
+        $this->assertTrue($job->hasFailed());
+        $this->assertCount(1, $reported);
+        $this->assertInstanceOf(SettlementException::class, $reported[0]);
+    }
+
+    public function testExchangeOwnershipStillPublishesItsCopyWhenSettlementFails(): void
+    {
+        $this->config(['queue.connections.rabbitmq.failed.ownership' => 'exchange']);
+
+        $reported = [];
+        $this->container->instance(ExceptionHandler::class, $this->exceptionHandler($reported));
+
+        $queue = $this->rabbitQueue();
+        $queue->shouldReceive('reject')
+            ->once()
+            ->andThrow(SettlementException::brokerRefused('reject', 'default', new \RuntimeException('boom')));
+        $queue->shouldReceive('declareQueue')->once()->with('failed_messages');
+        $queue->shouldReceive('pushRaw')->once();
+
+        $job = $this->makeJob($queue);
+        $job->markAsFailed();
+
+        $this->assertTrue($job->hasFailed());
+        $this->assertCount(1, $reported);
+    }
+
+    public function testSettlementFailureIsSurvivableWithoutAnExceptionHandlerBound(): void
+    {
+        $queue = $this->rabbitQueue();
+        $queue->shouldReceive('reject')
+            ->once()
+            ->andThrow(SettlementException::channelUnusable('reject', 'default'));
+
+        $job = $this->makeJob($queue);
+        $job->markAsFailed();
+
+        $this->assertTrue($job->hasFailed());
+    }
+
+    private function exceptionHandler(array &$reported): ExceptionHandler&MockInterface
+    {
+        $handler = Mockery::mock(ExceptionHandler::class);
+        $handler->shouldReceive('report')->andReturnUsing(function ($e) use (&$reported): void {
+            $reported[] = $e;
+        });
+
+        return $handler;
     }
 
     private function config(array $values): void

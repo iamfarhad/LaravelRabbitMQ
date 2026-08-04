@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace iamfarhad\LaravelRabbitMQ\Jobs;
 
 use AMQPEnvelope;
+use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Queue\Job as JobContract;
 use Illuminate\Queue\Jobs\Job;
 use Illuminate\Support\Arr;
@@ -197,11 +199,35 @@ class RabbitMQJob extends Job implements JobContract
     public function markAsFailed(): void
     {
         parent::markAsFailed();
-        $this->rabbitQueue->reject($this);
+
+        // A settlement failure must not escape this method. Laravel calls
+        // markAsFailed() *before* the try/finally in Job::fail() that dispatches
+        // JobFailed, so throwing here would abort the lifecycle that writes the
+        // authoritative failed-job record — losing the durable explanation for a
+        // failure that operators need (issue #32). Report it and let the broker
+        // redeliver the unresolved delivery instead.
+        try {
+            $this->rabbitQueue->reject($this);
+        } catch (SettlementException $exception) {
+            $this->reportSettlementFailure($exception);
+        }
 
         if ($this->failureOwner() === self::FAILURE_OWNER_EXCHANGE) {
             $this->convertMessageToFailed();
         }
+    }
+
+    /**
+     * Surface a settlement failure through the application's exception handler,
+     * the only reporting channel available without aborting the caller.
+     */
+    private function reportSettlementFailure(SettlementException $exception): void
+    {
+        if (! $this->container->bound(ExceptionHandler::class)) {
+            return;
+        }
+
+        $this->container->make(ExceptionHandler::class)->report($exception);
     }
 
     public function delete(): void

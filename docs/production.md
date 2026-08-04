@@ -191,6 +191,33 @@ Do not point `exchange` ownership at a queue that also has dead-letter routing
 configured — the same failure would then be recorded twice, with divergent
 retention, alerting, and replay policies.
 
+### Settlement failures
+
+Acknowledging or rejecting a delivery can fail — a broker restart, a dropped
+connection, or an expired delivery tag. When it does, the package throws
+`iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException` after dropping the
+unusable delivering channel, rather than returning as if the broker had settled
+the delivery. Dropping that channel is what lets RabbitMQ redeliver.
+
+Two consequences to design for:
+
+- **Handlers must be idempotent.** An unsettled delivery is redelivered, so a
+  job whose work succeeded but whose ack failed will run again.
+- **A failed ack is reported as a job exception.** Laravel's worker reports it
+  through the exception handler. With `--tries=1` this also records a failed job
+  even though the handler succeeded — alert on `SettlementException` separately
+  from ordinary job failures.
+
+Terminal failure is the one exception: `markAsFailed()` reports a settlement
+failure through the exception handler instead of throwing, because Laravel calls
+it before the lifecycle step that writes `failed_jobs`, and throwing would
+discard that record.
+
+Note that the reject still precedes the `failed_jobs` write. If that write fails,
+the delivery may already have been settled — which is a further reason to run
+broker-owned failures with a dead-letter exchange, so the payload survives in the
+DLQ either way.
+
 ## Operational checklist
 
 - Build PHP images with ext-amqp installed and verified.
