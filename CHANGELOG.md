@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-08-04
+
 ### 💥 Fixed — reported issues
 
 - **A terminal failure could be discarded before `failed_jobs` was written** ([#37](https://github.com/iamfarhad/LaravelRabbitMQ/issues/37)). `Job::fail()` calls `markAsFailed()` first and dispatches `JobFailed` last; the authoritative `failed_jobs` write is itself a `JobFailed` listener. Rejecting inside `markAsFailed()` therefore removed the delivery from the queue *before* — or instead of — persisting the record explaining why it died. Settlement now happens in a `JobFailed` listener that is appended when the failure begins, so it always runs after the failer listener: if the failed-job provider throws, the dispatch aborts before reaching it, the delivery stays unresolved, and the broker redelivers. The `failed.ownership=exchange` copy moved into the same step, ordered before the reject, so a failed persistence can no longer leave an orphaned copy. This does not make the two writes atomic — nothing can — but it inverts the failure mode from "lost record" to "possible duplicate record", which is recoverable.
