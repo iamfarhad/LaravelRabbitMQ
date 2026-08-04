@@ -16,6 +16,7 @@ use Illuminate\Queue\Events\WorkerIdle;
 use Illuminate\Queue\Events\WorkerStarting;
 use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
+use ReflectionClass;
 use ReflectionMethod;
 use RuntimeException;
 use Throwable;
@@ -33,10 +34,25 @@ class Consumer extends Worker
     private string $consumeMode = 'poll';
 
     /**
-     * Jobs handled by this daemon loop. Mirrored onto the framework's own
-     * counter by syncProcessedJobCounters() when that property exists.
+     * Jobs handled by this daemon loop.
      */
     private int $processedJobs = 0;
+
+    /**
+     * Laravel 13's Worker reads these for --max-jobs and --stop-when-empty-for.
+     * They are declared here, untyped and matching the parent's visibility, so
+     * the same slots are reused on 13 and simply exist on 10-12 — where the
+     * count is passed positionally instead. Declaring them beats writing to
+     * properties that only exist on some supported versions.
+     *
+     * @var int
+     */
+    protected $jobsProcessed = 0;
+
+    /**
+     * @var int|float|null
+     */
+    protected $lastJobProcessedAt = null;
 
     /**
      * Whether Worker::stopIfNecessary() still takes the pre-Laravel-13
@@ -358,12 +374,31 @@ class Consumer extends Worker
             return false;
         }
 
-        return $this->events->until(new Looping($connectionName, $queue, $options)) !== false;
+        return $this->events->until($this->newLoopingEvent($connectionName, $queue, $options)) !== false;
     }
 
     public function stop($status = 0, $options = null, $reason = null)
     {
         return parent::stop($status, $options, $reason);
+    }
+
+    /**
+     * Laravel 13's Looping event takes the WorkerOptions as a third constructor
+     * argument; earlier versions take two. Built reflectively so the event
+     * carries everything the installed version can hold, without assuming an
+     * arity that only some supported versions have.
+     *
+     * @param  string  $connectionName
+     * @param  string  $queue
+     */
+    private function newLoopingEvent($connectionName, $queue, WorkerOptions $options): object
+    {
+        $reflection = new ReflectionClass(Looping::class);
+        $accepts = $reflection->getConstructor()?->getNumberOfParameters() ?? 2;
+
+        return $reflection->newInstanceArgs(
+            array_slice([$connectionName, $queue, $options], 0, max(2, $accepts))
+        );
     }
 
     /**
@@ -440,12 +475,6 @@ class Consumer extends Worker
      */
     private function syncProcessedJobCounters(bool $jobJustFinished): void
     {
-        if (self::stopIfNecessaryTakesJobsProcessed()) {
-            // Pre-Laravel-13: the worker has no such properties, and writing
-            // them would create deprecated dynamic properties.
-            return;
-        }
-
         $this->jobsProcessed = $this->processedJobs;
 
         if ($jobJustFinished) {

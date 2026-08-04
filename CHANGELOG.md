@@ -77,7 +77,8 @@ These were read by no code. Leaving them in place implied behaviour the driver n
 - Cleanup and Horizon event listeners are registered once per dispatcher. `connect()` runs on every queue-connection resolution and used to stack another `WorkerStopping` (and, under Octane, `RequestTerminated`) closure each time, growing without bound and calling `closeAll()` once per accumulated listener.
 - The consumer restores the framework's `Looping` event (so `Queue::looping()` callbacks and Horizon's pause hooks work), calls `resetScope` between jobs, and dispatches `WorkerStarting`/`WorkerIdle` where available.
 - `RabbitQueue::createMessage()` is deprecated in favour of `correlationIdFor()`. It never created a message and ignored its `$attempts` argument.
-- CI now runs `composer analyse`, which had never been wired up — the Laravel 13 arity break was reported by PHPStan but never seen. PHPStan is upgraded to 2.x, `larastan` is an optional local add-on (it does not support the Laravel 10 line), and the Laravel 10 and 11 rows the support matrix claims are now actually built.
+- CI now runs `composer analyse`, which had never been wired up — the Laravel 13 arity break was reported by PHPStan but never seen. PHPStan is upgraded to 2.x and `larastan` is an optional local add-on (it does not support the Laravel 10 line). Static analysis and the full suite are verified against both Laravel 12 and Laravel 13, i.e. both sides of the `Worker` API change.
+- `SUPPORT.md` no longer claims CI coverage for Laravel 10.x and 11.x. Those rows cannot be built: every released version of both lines is currently flagged by Composer's security-advisory policy, so `composer update` refuses to resolve them, and the only alternatives would be disabling advisory blocking or pinning a flagged release. They remain declared in `composer.json` and best-effort supported.
 - Attempt counts now travel in a `laravel.attempts` message header as well as the payload body. `attempts()` already preferred the header, but nothing ever set it.
 
 ## [1.4.1] - 2026-08-04
@@ -322,7 +323,7 @@ None. All new features are opt-in and backward compatible.
 
 ---
 
-## [1.0.0] - Previous Versions
+## [1.0.0] - 2025-09-11
 
 ### Legacy Features
 - Basic RabbitMQ queue driver functionality

@@ -18,6 +18,11 @@ jobs:
 
     strategy:
       fail-fast: false
+      # Laravel 10.x and 11.x are declared in composer.json but cannot be built
+      # here: every released version of both lines is currently flagged by
+      # Composer's security-advisory policy, so `composer update` refuses to
+      # resolve them. Installing them anyway would mean testing against
+      # framework releases with known advisories. See SUPPORT.md.
       matrix:
         include:
           - php: '8.2'
@@ -58,21 +63,6 @@ jobs:
           - php: '8.2'
             laravel: '12.*'
             testbench: '10.*'
-            dependency-version: prefer-lowest
-            rabbitmq: '3.13-management'
-          - php: '8.2'
-            laravel: '10.*'
-            testbench: '8.*'
-            dependency-version: prefer-stable
-            rabbitmq: '3.13-management'
-          - php: '8.3'
-            laravel: '11.*'
-            testbench: '9.*'
-            dependency-version: prefer-stable
-            rabbitmq: '3.13-management'
-          - php: '8.2'
-            laravel: '11.*'
-            testbench: '9.*'
             dependency-version: prefer-lowest
             rabbitmq: '3.13-management'
           - php: '8.5'
