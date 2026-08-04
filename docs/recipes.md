@@ -10,14 +10,28 @@ Use Laravel's delay API:
 dispatch(new App\Jobs\SendReminder($user))->delay(now()->addMinutes(10));
 ```
 
-The package creates delay queues using TTL and dead-letter routing unless the delayed-message plugin path is enabled.
+Without a broker plugin the package routes the job through a per-TTL delay queue
+that dead-letters back to the target queue.
 
-For the RabbitMQ delayed-message plugin:
+Because each distinct TTL needs its own queue, delays are rounded **up** into
+buckets so jittered or computed backoff cannot create an unbounded number of
+them. Rounding up never fires a job early:
+
+```env
+# Bucket size in milliseconds. Set to 1 for exact TTLs.
+RABBITMQ_DELAY_QUEUE_GRANULARITY=1000
+```
+
+For many distinct or sub-second delays, use the delayed-message plugin instead —
+a single exchange rather than a queue per TTL:
 
 ```env
 RABBITMQ_DELAYED_PLUGIN_ENABLED=true
 RABBITMQ_DELAYED_EXCHANGE=delayed
 ```
+
+That path requires the `rabbitmq_delayed_message_exchange` plugin enabled on the
+broker.
 
 ## Quorum queues
 
@@ -32,13 +46,14 @@ Or per queue:
 ```php
 'queues' => [
     'orders' => [
-        'name' => 'orders',
         'quorum' => true,
     ],
 ],
 ```
 
-Do not combine quorum queues with priority queues.
+Quorum queues do not support `x-max-priority`, so the driver omits the priority
+argument for a quorum queue rather than letting the broker refuse the declare.
+Choose one or the other per queue.
 
 ## Priority queues
 
@@ -52,7 +67,6 @@ Per queue:
 ```php
 'queues' => [
     'critical' => [
-        'name' => 'critical',
         'priority' => 10,
     ],
 ],
@@ -63,9 +77,13 @@ Per queue:
 ```env
 RABBITMQ_PUBLISHER_CONFIRMS_ENABLED=true
 RABBITMQ_PUBLISHER_CONFIRMS_TIMEOUT=5
+
+# Also report a message the broker could not route anywhere, which confirms
+# alone acknowledge after discarding.
+RABBITMQ_PUBLISHER_CONFIRMS_MANDATORY=true
 ```
 
-Use this for workflows where RabbitMQ must confirm message receipt before the application considers the publish successful.
+Use this for workflows where RabbitMQ must confirm message receipt before the application considers the publish successful. Each publish waits for a broker round trip; `Queue::bulk()` confirms the whole batch with one wait.
 
 ## Dead-letter routing
 
@@ -76,6 +94,11 @@ RABBITMQ_FAILED_ROUTING_KEY=%s.failed
 ```
 
 Declare and monitor the failed exchange and queues as part of your deployment process.
+
+This pairs with the default `RABBITMQ_FAILED_OWNERSHIP=broker`, so a permanently
+failed job produces exactly one record — in the DLQ. See
+[failure ownership](production.md#failure-ownership) before combining it with
+`RABBITMQ_FAILED_OWNERSHIP=exchange`, which would record the same failure twice.
 
 ## Horizon
 
@@ -119,7 +142,9 @@ RABBITMQ_OCTANE_RESET_ON_REQUEST=false
 # lower than any idle timeout between the app and the broker.
 RABBITMQ_HEARTBEAT_CONNECTION=30
 
-RABBITMQ_READ_TIMEOUT=10
+# At least twice the heartbeat, so a read cannot time out before heartbeat
+# frames have had a chance to be exchanged.
+RABBITMQ_READ_TIMEOUT=60
 RABBITMQ_WRITE_TIMEOUT=10
 RABBITMQ_CONNECT_TIMEOUT=5
 
@@ -155,7 +180,10 @@ already generous.
 ],
 ```
 
-The connector selects a host for each new connection attempt.
+Hosts are shuffled per connection attempt, so concurrent workers do not all pile
+onto the same node first, and retries cycle to the next host rather than
+hammering the one that just failed. Every configured host gets at least one
+attempt even when `RABBITMQ_MAX_RETRIES` is lower than the host count.
 
 ## Hot queue worker
 
@@ -164,6 +192,16 @@ php artisan rabbitmq:consume --queue=emails --consume-mode=consume --memory=256 
 ```
 
 Use one queue per worker group in consume mode. Scale with more worker processes or replicas.
+
+Two things apply to this mode only:
+
+- `RABBITMQ_PREFETCH_COUNT` takes effect here (`basic.qos` governs
+  `basic_consume`, not `basic_get`). It defaults to `1`, which is right for a
+  single-threaded worker; raise it only for short, I/O-bound jobs, and keep the
+  job timeout well under the time to work through a full batch.
+- `--stop-when-empty` and `--stop-when-empty-for` fall back to poll mode for the
+  run, because `basic_consume` only evaluates stop conditions when a delivery
+  arrives and would otherwise block forever on an idle queue.
 
 ## Safe default worker
 

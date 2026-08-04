@@ -151,10 +151,24 @@ RABBITMQ_PUBLISHER_CONFIRMS_ENABLED=true
 RABBITMQ_PUBLISHER_CONFIRMS_TIMEOUT=5
 ```
 
-This improves delivery confidence at the cost of extra publish latency. A
-broker NACK fails only the publish it belongs to: it surfaces as an exception
+This improves delivery confidence at the cost of extra publish latency: each
+publish waits for a broker round trip. `Queue::bulk()` confirms the whole batch
+with a single wait instead.
+
+A broker NACK fails only the publish it belongs to: it surfaces as an exception
 from that publish and is then cleared, so a long-lived publisher or worker
 keeps reporting later acknowledged publishes as successful.
+
+Confirms alone do not detect an **unroutable** message — RabbitMQ acknowledges
+one after discarding it. Add the mandatory flag so it is returned and reported
+instead:
+
+```env
+RABBITMQ_PUBLISHER_CONFIRMS_MANDATORY=true
+```
+
+This matters most when publishing through a custom exchange, where a missing or
+mismatched binding would otherwise lose messages silently.
 
 ## Quorum queues
 
@@ -164,7 +178,9 @@ Use quorum queues for stronger queue durability in RabbitMQ clusters:
 RABBITMQ_QUEUE_QUORUM=true
 ```
 
-Do not combine quorum queues with priority queues.
+Quorum queues do not support `x-max-priority`, so the driver omits the priority
+argument for a queue declared as quorum rather than letting the broker refuse the
+declare. Choose one or the other per queue.
 
 ## Dead-letter routing
 
@@ -175,6 +191,19 @@ RABBITMQ_FAILED_ROUTING_KEY=%s.failed
 ```
 
 Create dashboards and alerts around failed exchanges and DLQs.
+
+`RABBITMQ_REROUTE_FAILED` attaches `x-dead-letter-exchange` to the queues the
+driver declares. For a queue that needs its own dead-letter exchange, dead-letter
+queue and binding created for it, call the helper instead:
+
+```php
+Queue::connection('rabbitmq')->setupDeadLetterExchange('orders');
+```
+
+That honours the `dead_letter.*` configuration, including `queue_suffix` and a
+`ttl` retention on the dead-letter queue. Call it **before** the target queue
+first exists: RabbitMQ queue arguments are immutable, so an existing queue cannot
+be rewired without deleting it.
 
 ### Failure ownership
 
@@ -216,15 +245,27 @@ Two consequences to design for:
   even though the handler succeeded — alert on `SettlementException` separately
   from ordinary job failures.
 
-Terminal failure is the one exception: `markAsFailed()` reports a settlement
-failure through the exception handler instead of throwing, because Laravel calls
-it before the lifecycle step that writes `failed_jobs`, and throwing would
-discard that record.
+### Terminal failures are recorded before they are settled
 
-Note that the reject still precedes the `failed_jobs` write. If that write fails,
-the delivery may already have been settled — which is a further reason to run
-broker-owned failures with a dead-letter exchange, so the payload survives in the
-DLQ either way.
+A permanently failed delivery is only rejected **after** Laravel has written the
+`failed_jobs` record.
+
+`Job::fail()` calls `markAsFailed()` first and dispatches `JobFailed` last, and
+the `failed_jobs` write is itself a `JobFailed` listener. The driver therefore
+settles from its own `JobFailed` listener, appended when the failure begins so it
+always runs after the one that persists the record. If your failed-job provider
+throws — a database outage, a missing table — the dispatch aborts before the
+driver's listener, the delivery is never settled, and RabbitMQ redelivers it.
+
+A settlement failure at that point is reported through the exception handler
+rather than thrown, because the record already exists and throwing would abort
+the rest of the lifecycle.
+
+The two writes are not atomic, and cannot be: a crash in the window between them
+means a redelivery and possibly a **duplicate** `failed_jobs` row. That is
+recoverable and visible, unlike the missing row it replaces. Keep terminal
+handlers idempotent, and keep a dead-letter exchange configured so the payload
+survives regardless.
 
 ## Operational checklist
 

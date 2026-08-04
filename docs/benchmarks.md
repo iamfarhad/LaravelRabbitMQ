@@ -48,15 +48,20 @@ Job handler duration:
 
 ## Benchmark commands
 
-Create a dedicated benchmark app or command that can:
+The package ships no benchmark command. The commands below are a **sketch of what
+to build in your own application**, not commands you can run:
 
 ```bash
+# Illustrative only — not provided by this package.
 php artisan rabbitmq:bench:publish --queue=bench --jobs=10000 --payload-size=1024
 php artisan rabbitmq:bench:consume --queue=bench --jobs=10000 --consume-mode=poll
 php artisan rabbitmq:bench:consume --queue=bench --jobs=10000 --consume-mode=consume
 ```
 
-Until first-class benchmark commands exist, use a demo application that dispatches a fixed number of jobs and measures end-to-end time.
+In the meantime, use a demo application that dispatches a fixed number of jobs and
+measures end-to-end time. Compare poll and consume modes at the same
+`RABBITMQ_PREFETCH_COUNT`, since prefetch only applies to consume mode and is the
+single biggest lever on consume-mode throughput.
 
 ## Reporting format
 
