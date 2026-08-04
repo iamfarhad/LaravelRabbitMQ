@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-04
+
 ### ⚠️ Changed
 
 - **`ack()` and `reject()` now report settlement failures instead of swallowing them** ([#31](https://github.com/iamfarhad/LaravelRabbitMQ/issues/31), [#33](https://github.com/iamfarhad/LaravelRabbitMQ/issues/33)): both methods used to catch `AMQPChannelException`/`AMQPConnectionException`, release the channel, and return normally — and to return silently when the delivering channel was already `null` or unusable. Callers could not tell a completed settlement from one that never reached the broker, so a job could be recorded as handled while RabbitMQ still owned an unresolved delivery and would redeliver it later. Every failure path now throws the new `iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException` after releasing the unusable delivering channel (that release is what lets the broker redeliver). Successful settlement is unchanged, and a delivery tag is still never retried on a replacement channel, since tags are scoped to the channel that delivered the message.
@@ -22,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Internal
 
 - The near-identical `ack()`/`reject()` bodies are now one `settle()` helper, so the delivering-channel rules cannot drift between them.
-- `.github/workflows/update-changelog.yml` is replaced by `verify-changelog.yml`. The old workflow checked out a `main` branch that does not exist in this repository and failed on every release from 1.3.0 through 1.4.0. The changelog is hand-curated, so the replacement asserts that a published release has a matching `## [x.y.z]` section rather than writing one.
+- The changelog automation now checks out the repository's actual default branch. It previously targeted a `main` branch that does not exist here, so it failed on every release from 1.3.0 through 1.4.1 without ever updating `CHANGELOG.md`.
 
 ## [1.4.0] - 2026-08-04
 
