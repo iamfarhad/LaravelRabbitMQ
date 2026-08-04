@@ -1,0 +1,73 @@
+name: Verify Changelog
+
+# Two read-only checks. Neither mutates CHANGELOG.md.
+#
+# The previous "Update Changelog" workflow ran on `release: [released]` and
+# *rewrote* the changelog after publication, which meant nothing could ever block
+# an invalid release and release history could be edited after the fact
+# (issue #36). Publication is now gated by release.yml; these checks keep master
+# releasable and re-assert published tags.
+
+on:
+  pull_request:
+    branches: ['*']
+  release:
+    types: [released]
+
+permissions:
+  contents: read
+
+jobs:
+  master-is-releasable:
+    name: Changelog is well formed
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      # Every released heading must be dated and unique, so the release gate can
+      # never be the first thing to discover a malformed changelog.
+      - name: Check every released section is dated and unique
+        run: |
+          FAILED=0
+          VERSIONS=$(grep -oE '^## \[v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*\]' CHANGELOG.md \
+            | sed -E 's/^## \[v?//; s/\]$//' | sort -u)
+
+          if [ -z "$VERSIONS" ]; then
+            echo "::error::CHANGELOG.md contains no released version sections."
+            exit 1
+          fi
+
+          for VERSION in $VERSIONS; do
+            if ! php scripts/validate-changelog.php "$VERSION"; then
+              FAILED=1
+            fi
+          done
+
+          exit "$FAILED"
+
+  published-tag-has-notes:
+    name: Published tag has release notes
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      # Secondary monitoring only: release.yml should have made this impossible,
+      # so a failure here means a release bypassed the gate.
+      - name: Re-assert the published version's section
+        run: php scripts/validate-changelog.php "${{ github.event.release.tag_name }}"
