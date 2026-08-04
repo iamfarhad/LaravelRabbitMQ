@@ -41,6 +41,23 @@ return [
     'failed_exchange' => env('RABBITMQ_FAILED_EXCHANGE', ''),
     'failed_routing_key' => env('RABBITMQ_FAILED_ROUTING_KEY', '%s.failed'),
 
+    // Who owns a permanently failed job. Exactly one sink receives it, so a
+    // broker dead-letter setup can never produce a second, divergent record.
+    'failed' => [
+        // 'broker'   — reject without requeue and let the queue's configured
+        //              x-dead-letter-exchange own the failure (default; this is
+        //              the mode to use together with `reroute_failed`).
+        // 'exchange' — reject, then also publish a copy to the queue named in
+        //              `failed.exchange` below. This is the pre-1.3.5
+        //              behaviour; do not combine it with `reroute_failed` or
+        //              any other x-dead-letter-exchange on the source queue,
+        //              or the same failure is recorded twice.
+        'ownership' => env('RABBITMQ_FAILED_OWNERSHIP', 'broker'),
+
+        // Destination used only by the 'exchange' ownership mode.
+        'exchange' => env('RABBITMQ_FAILED_MESSAGES_EXCHANGE', 'failed_messages'),
+    ],
+
     // Connection and Channel Pool Configuration
     'pool' => [
         'max_connections' => env('RABBITMQ_MAX_CONNECTIONS', 10),

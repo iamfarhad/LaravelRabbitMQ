@@ -15,7 +15,18 @@ use Throwable;
 
 class RabbitMQJob extends Job implements JobContract
 {
-    private const FAILED_MESSAGES_EXCHANGE = 'failed_messages';
+    /**
+     * Terminal failures are owned by the broker's dead-letter routing.
+     */
+    public const FAILURE_OWNER_BROKER = 'broker';
+
+    /**
+     * Terminal failures are additionally copied to a package-published
+     * failure exchange/queue (pre-1.3.5 behaviour).
+     */
+    public const FAILURE_OWNER_EXCHANGE = 'exchange';
+
+    private const DEFAULT_FAILED_EXCHANGE = 'failed_messages';
 
     protected array $decoded = [];
 
@@ -101,17 +112,67 @@ class RabbitMQJob extends Job implements JobContract
 
     private function convertMessageToFailed(): void
     {
-        try {
-            if ($this->amqpEnvelope->getExchangeName() !== self::FAILED_MESSAGES_EXCHANGE) {
-                if (! $this->rabbitQueue->getConnection()->isConnected()) {
-                    return;
-                }
+        $failedExchange = $this->failedExchange();
 
-                $this->rabbitQueue->declareQueue(self::FAILED_MESSAGES_EXCHANGE);
-                $this->rabbitQueue->pushRaw($this->amqpEnvelope->getBody(), self::FAILED_MESSAGES_EXCHANGE);
+        if ($failedExchange === '') {
+            return;
+        }
+
+        // A message that already lives in the failure destination must never be
+        // copied again, otherwise consuming that destination republishes
+        // forever. Deliveries through the default exchange carry an empty
+        // exchange name, so the queue has to be checked as well.
+        if ($this->amqpEnvelope->getExchangeName() === $failedExchange || $this->queue === $failedExchange) {
+            return;
+        }
+
+        try {
+            if (! $this->rabbitQueue->getConnection()->isConnected()) {
+                return;
             }
+
+            $this->rabbitQueue->declareQueue($failedExchange);
+
+            // Publish through the default exchange so the copy actually lands
+            // in the failure queue declared above, instead of being routed by
+            // the connection's configured publishing exchange.
+            $this->rabbitQueue->pushRaw($this->amqpEnvelope->getBody(), $failedExchange, ['exchange' => '']);
         } catch (Throwable) {
         }
+    }
+
+    /**
+     * Which sink owns a permanently failed job. Anything other than an explicit
+     * "exchange" selection leaves ownership with the broker, so a queue with
+     * dead-letter routing never gets a second, divergent failure record.
+     *
+     * Override this in a custom job class (`options.queue.job`) to decide
+     * ownership per job instead of per connection.
+     */
+    protected function failureOwner(): string
+    {
+        $owner = $this->failedConfig('ownership', self::FAILURE_OWNER_BROKER);
+
+        return is_string($owner) && strtolower($owner) === self::FAILURE_OWNER_EXCHANGE
+            ? self::FAILURE_OWNER_EXCHANGE
+            : self::FAILURE_OWNER_BROKER;
+    }
+
+    private function failedExchange(): string
+    {
+        return (string) $this->failedConfig('exchange', self::DEFAULT_FAILED_EXCHANGE);
+    }
+
+    /**
+     * Read a `failed.*` setting from this job's own connection, falling back to
+     * the package's default connection name for single-connection setups.
+     */
+    private function failedConfig(string $key, mixed $default): mixed
+    {
+        return config(
+            "queue.connections.{$this->connectionName}.failed.{$key}",
+            config("queue.connections.rabbitmq.failed.{$key}", $default)
+        );
     }
 
     public function attempts(): int
@@ -127,11 +188,20 @@ class RabbitMQJob extends Job implements JobContract
         return $laravelAttempts + 1;
     }
 
+    /**
+     * A terminal failure has exactly one owner. The message is always rejected
+     * without requeue — which hands it to the queue's configured
+     * `x-dead-letter-exchange`, if any — and only an explicit `exchange`
+     * ownership mode additionally publishes the package's own failure copy.
+     */
     public function markAsFailed(): void
     {
         parent::markAsFailed();
         $this->rabbitQueue->reject($this);
-        $this->convertMessageToFailed();
+
+        if ($this->failureOwner() === self::FAILURE_OWNER_EXCHANGE) {
+            $this->convertMessageToFailed();
+        }
     }
 
     public function delete(): void

@@ -15,6 +15,14 @@ final class ConsumeCommand extends WorkCommand
     /**
      * The console command signature.
      *
+     * This overrides Laravel's `queue:work` signature, so it must define every
+     * option the inherited WorkCommand reads — `gatherWorkerOptions()` and
+     * `outputUsingJson()` look options up by name and Symfony throws for any
+     * that is undefined, even when it was never passed on the command line.
+     * Options that only exist on newer frameworks (`--stop-when-empty-for`,
+     * `--json`) are still declared on Laravel 10/11, where they are simply
+     * accepted and ignored by the parent.
+     *
      * @var string
      */
     protected $signature = 'rabbitmq:consume
@@ -23,6 +31,7 @@ final class ConsumeCommand extends WorkCommand
                             {--queue= : The names of the queues to work}
                             {--once : Only process the next job on the queue}
                             {--stop-when-empty : Stop when the queue is empty}
+                            {--stop-when-empty-for=0 : Stop when no jobs have been processed for the given number of seconds}
                             {--delay=0 : The number of seconds to delay failed jobs}
                             {--backoff=0 : The number of seconds to wait before retrying a job that encountered an uncaught exception}
                             {--max-jobs=0 : The number of jobs to process before stopping}
@@ -33,6 +42,7 @@ final class ConsumeCommand extends WorkCommand
                             {--timeout=60 : The number of seconds a child process can run}
                             {--tries=1 : Number of times to attempt a job before logging it failed}
                             {--rest=0 : Number of seconds to rest between jobs}
+                            {--json : Output the queue worker information as JSON}
                             {--max-priority=null : Maximum priority level to consume}
                             {--consumer-tag= : Custom RabbitMQ consumer tag}
                             {--consume-mode= : Consumer mode: poll or consume}
