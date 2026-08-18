@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace iamfarhad\LaravelRabbitMQ\Tests\Unit;
 
 use AMQPChannel;
+use Carbon\Carbon;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableRabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
@@ -19,6 +20,7 @@ class RabbitQueueTopologyTest extends UnitTestCase
 {
     protected function tearDown(): void
     {
+        Carbon::setTestNow();
         Container::setInstance(null);
         parent::tearDown();
     }
@@ -214,6 +216,196 @@ class RabbitQueueTopologyTest extends UnitTestCase
         sort($delayQueues);
 
         $this->assertSame(['orders.delay.4000', 'orders.delay.5000'], $delayQueues);
+    }
+
+    /**
+     * A delay queue carries `x-expires`, so the broker deletes it once it falls
+     * idle and tells no one. Remembering it past that lifetime means publishing
+     * into a queue that is no longer there, and the default exchange discards
+     * an unroutable message silently — the publish looks like it worked.
+     */
+    public function testDelayQueueIsRedeclaredOnceItsBrokerSideLifetimeHasPassed(): void
+    {
+        Carbon::setTestNow('2026-08-18 09:40:57');
+        $this->bindConfig([]);
+
+        $declaredNames = [];
+
+        $amqpQueue = $this->recordingQueue($declaredNames);
+        $amqpExchange = Mockery::mock(\AMQPExchange::class);
+        $amqpExchange->shouldReceive('setName');
+        $amqpExchange->shouldReceive('publish');
+
+        $queue = $this->makeQueue($this->poolManagerWithChannel(), $amqpQueue, $amqpExchange);
+
+        $queue->laterRaw(10, '{"id":"a"}', 'orders');
+
+        // x-expires is 20s for a 10s delay, so the queue is gone by now.
+        Carbon::setTestNow('2026-08-18 09:41:47');
+
+        $queue->laterRaw(10, '{"id":"b"}', 'orders');
+
+        $this->assertSame(
+            2,
+            $this->countDeclarations($declaredNames, 'orders.delay.10000'),
+            'An expired delay queue must be redeclared before it is published to again.',
+        );
+    }
+
+    /**
+     * The redeclare is scoped to what the broker can remove on its own: a queue
+     * with no `x-expires` is never garbage-collected, so it must still cost one
+     * round trip however long the process runs.
+     */
+    public function testQueueWithoutBrokerSideLifetimeIsNeverRedeclared(): void
+    {
+        Carbon::setTestNow('2026-08-18 09:40:57');
+        $this->bindConfig([]);
+
+        $declaredNames = [];
+
+        $amqpQueue = $this->recordingQueue($declaredNames);
+        $amqpQueue->shouldReceive('get')->andReturn(null);
+
+        $queue = $this->makeQueue($this->poolManagerWithChannel(), $amqpQueue, null, 'orders');
+
+        $this->assertNull($queue->pop());
+
+        Carbon::setTestNow('2026-08-18 11:40:57');
+
+        $this->assertNull($queue->pop());
+
+        $this->assertSame(
+            1,
+            $this->countDeclarations($declaredNames, 'orders'),
+            'A queue the broker never deletes must stay memoised.',
+        );
+    }
+
+    /**
+     * Within the lifetime the memo still has to hold, or the fix would trade a
+     * lost message for a redundant round trip on every publish.
+     */
+    public function testDelayQueueIsNotRedeclaredWhileItIsStillAlive(): void
+    {
+        Carbon::setTestNow('2026-08-18 09:40:57');
+        $this->bindConfig([]);
+
+        $declaredNames = [];
+
+        $amqpQueue = $this->recordingQueue($declaredNames);
+        $amqpExchange = Mockery::mock(\AMQPExchange::class);
+        $amqpExchange->shouldReceive('setName');
+        $amqpExchange->shouldReceive('publish');
+
+        $queue = $this->makeQueue($this->poolManagerWithChannel(), $amqpQueue, $amqpExchange);
+
+        $queue->laterRaw(10, '{"id":"a"}', 'orders');
+        $queue->laterRaw(10, '{"id":"b"}', 'orders');
+
+        $this->assertSame(
+            1,
+            $this->countDeclarations($declaredNames, 'orders.delay.10000'),
+            'A delay queue that cannot have expired yet must be declared once.',
+        );
+    }
+
+    /**
+     * What bounds the memo is not `x-expires` on its own: a message published
+     * at the very end of the window still needs its full `x-message-ttl` to
+     * dead-letter out, and a queue removed on `x-expires` discards its contents
+     * instead of dead-lettering them. A TTL that is not a whole number of
+     * seconds — reachable through `delay_queue_granularity` — is where a window
+     * derived from `x-expires` alone overshoots that bound.
+     */
+    public function testDelayQueueIsRedeclaredBeforeItsMessagesCouldOutliveIt(): void
+    {
+        Carbon::setTestNow('2026-08-18 09:40:57.000');
+        $this->bindConfig(['delay_queue_granularity' => 300]);
+
+        $declaredNames = [];
+
+        $amqpQueue = $this->recordingQueue($declaredNames);
+        $amqpExchange = Mockery::mock(\AMQPExchange::class);
+        $amqpExchange->shouldReceive('setName');
+        $amqpExchange->shouldReceive('publish');
+
+        $queue = $this->makeQueue($this->poolManagerWithChannel(), $amqpQueue, $amqpExchange);
+
+        // 1s rounds up to a 1200ms bucket, so x-expires is 2400ms and the
+        // declare may only be trusted for the 1200ms before the messages of a
+        // publish made at the end of it would still be in flight.
+        $queue->laterRaw(1, '{"id":"a"}', 'orders');
+
+        Carbon::setTestNow('2026-08-18 09:40:58.500');
+
+        $queue->laterRaw(1, '{"id":"b"}', 'orders');
+
+        $this->assertSame(
+            2,
+            $this->countDeclarations($declaredNames, 'orders.delay.1200'),
+            'A delay queue must be redeclared once its messages could outlive it.',
+        );
+    }
+
+    /**
+     * The broker deletes an auto-delete queue once a consumer has come and
+     * gone. Nothing bounds when that happens, so a publisher holding a memo has
+     * no point at which it can decide the queue is stale — it must redeclare.
+     */
+    public function testAutoDeleteQueueIsNeverMemoised(): void
+    {
+        Carbon::setTestNow('2026-08-18 09:40:57');
+        $this->bindConfig(['queues' => ['orders' => ['auto_delete' => true]]]);
+
+        $declaredNames = [];
+
+        $amqpQueue = $this->recordingQueue($declaredNames);
+        $amqpQueue->shouldReceive('get')->andReturn(null);
+
+        $queue = $this->makeQueue($this->poolManagerWithChannel(), $amqpQueue, null, 'orders');
+
+        $this->assertNull($queue->pop());
+        $this->assertNull($queue->pop());
+
+        $this->assertSame(
+            2,
+            $this->countDeclarations($declaredNames, 'orders'),
+            'An auto-delete queue must be redeclared rather than memoised.',
+        );
+    }
+
+    /**
+     * An AMQPQueue double that records every name it is asked to declare.
+     *
+     * @param  list<string>  $declaredNames
+     */
+    private function recordingQueue(array &$declaredNames): \AMQPQueue
+    {
+        $name = null;
+
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName')->andReturnUsing(function (string $given) use (&$name): void {
+            $name = $given;
+        });
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('getFlags')->andReturn(2);
+        $amqpQueue->shouldReceive('setArguments');
+        $amqpQueue->shouldReceive('declareQueue')->andReturnUsing(function () use (&$name, &$declaredNames): int {
+            $declaredNames[] = $name;
+
+            return 0;
+        });
+
+        return $amqpQueue;
+    }
+
+    /**
+     * @param  list<string>  $declaredNames
+     */
+    private function countDeclarations(array $declaredNames, string $queueName): int
+    {
+        return count(array_filter($declaredNames, static fn (?string $name): bool => $name === $queueName));
     }
 
     /**

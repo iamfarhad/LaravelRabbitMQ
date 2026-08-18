@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 💥 Fixed — reliability and correctness
+
+- **Delayed jobs were silently lost once their delay queue had been garbage-collected.** Delayed messages are held in a `<queue>.delay.<ttl>` queue carrying `x-expires`, so the broker deletes it once it falls idle — but 1.4.2's per-channel topology memo remembered the declaration for the life of the process with no invalidation. A publisher whose last publish to that TTL bucket was longer ago than the queue's lifetime skipped the redeclare and published into a queue that no longer existed, and the default exchange discards an unroutable message without an exception or a failed job. Any workload dispatching delayed jobs at intervals hits this routinely: with several worker processes each holding its own memo, one process's gap between publishes to the same bucket easily exceeds `x-expires`. Declarations of a queue the broker can remove on its own are now retired before that can happen — after `(x-expires - x-message-ttl) / 2`, since a message published at the end of the window still needs its full TTL to dead-letter out and a queue removed on `x-expires` discards its contents rather than dead-lettering them — and are timed in milliseconds so the window cannot be lost to second-boundary rounding. Auto-delete queues, which the broker removes once a consumer has come and gone with no timed bound to work with, are no longer memoised at all. Topology the broker never removes on its own is still memoised for the life of the channel, so the hot publish and poll paths are unchanged.
+
 ## [1.4.2] - 2026-08-04
 
 ### 💥 Fixed — reported issues

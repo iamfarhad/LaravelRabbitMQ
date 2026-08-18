@@ -12,6 +12,7 @@ use AMQPExchange;
 use AMQPExchangeException;
 use AMQPQueue;
 use AMQPQueueException;
+use Carbon\Carbon;
 use Exception;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
 use iamfarhad\LaravelRabbitMQ\Contracts\RabbitQueueInterface;
@@ -71,7 +72,15 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      * Cleared whenever the channel is replaced — declarations are only known
      * to have reached the broker over the channel that carried them.
      *
-     * @var array<string, true>
+     * Values are the UNIX timestamp in milliseconds the entry stops being
+     * trusted, or null for topology the broker never removes on its own. A
+     * queue the broker removes on its own — `x-expires` or auto-delete — is
+     * deleted without telling the publisher, so remembering one past the point
+     * it can still be relied on means publishing into a queue that is no longer
+     * there. Auto-delete has no timed bound to work with, so those declares are
+     * not memoised at all.
+     *
+     * @var array<string, int|null>
      */
     private array $declaredTopology = [];
 
@@ -580,7 +589,10 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         $mergedArguments = array_merge($this->getQueueArguments($name), $arguments);
         $memoKey = 'queue:'.$name.':'.md5(serialize([$durable, $autoDelete, $mergedArguments]));
 
-        if (isset($this->declaredTopology[$memoKey])) {
+        // An auto-delete queue is removed once a consumer has come and gone,
+        // with nothing to bound how long a publisher may keep believing in it,
+        // so it is redeclared every time rather than memoised.
+        if (! $autoDelete && $this->hasDeclared($memoKey)) {
             return;
         }
 
@@ -610,7 +622,9 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             }
         });
 
-        $this->declaredTopology[$memoKey] = true;
+        if (! $autoDelete) {
+            $this->rememberDeclaration($memoKey, $this->queueLifetime($mergedArguments));
+        }
     }
 
     /**
@@ -729,7 +743,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     {
         $memoKey = 'exchange:'.$name.':'.$type;
 
-        if (isset($this->declaredTopology[$memoKey])) {
+        if ($this->hasDeclared($memoKey)) {
             return;
         }
 
@@ -751,14 +765,14 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             }
         });
 
-        $this->declaredTopology[$memoKey] = true;
+        $this->rememberDeclaration($memoKey);
     }
 
     private function bindQueue(string $queueName, string $exchangeName, string $routingKey, array $arguments = []): void
     {
         $memoKey = 'binding:'.$queueName.':'.$exchangeName.':'.$routingKey.':'.md5(serialize($arguments));
 
-        if (isset($this->declaredTopology[$memoKey])) {
+        if ($this->hasDeclared($memoKey)) {
             return;
         }
 
@@ -768,7 +782,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $amqpQueue->bind($exchangeName, $routingKey, $arguments);
         });
 
-        $this->declaredTopology[$memoKey] = true;
+        $this->rememberDeclaration($memoKey);
     }
 
     private function declareDelayQueue(string $delayQueueName, string $targetQueueName, int $ttl): void
@@ -803,7 +817,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     {
         $memoKey = 'queue:'.$name.':'.md5(serialize([true, false, $arguments]));
 
-        if (isset($this->declaredTopology[$memoKey])) {
+        if ($this->hasDeclared($memoKey)) {
             return;
         }
 
@@ -825,7 +839,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             }
         });
 
-        $this->declaredTopology[$memoKey] = true;
+        $this->rememberDeclaration($memoKey, $this->queueLifetime($arguments));
     }
 
     /**
@@ -1406,7 +1420,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     {
         $memoKey = 'delayed-exchange:'.$exchangeName.':'.$exchangeType;
 
-        if (isset($this->declaredTopology[$memoKey])) {
+        if ($this->hasDeclared($memoKey)) {
             return;
         }
 
@@ -1422,6 +1436,87 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return;
         }
 
-        $this->declaredTopology[$memoKey] = true;
+        $this->rememberDeclaration($memoKey);
+    }
+
+    /**
+     * How long a declaration of a queue with these arguments may be trusted, in
+     * milliseconds, or null where nothing bounds it.
+     *
+     * Only `x-expires` removes a queue the publisher still believes in, and the
+     * bound it imposes is not the whole of it: a message published at the very
+     * end of the window still needs its full `x-message-ttl` to dead-letter
+     * out, and a queue the broker removes on `x-expires` discards its contents
+     * rather than dead-lettering them. So the declaration is only good for
+     * `x-expires - x-message-ttl`, and that is halved again — re-declaring
+     * costs one idempotent round trip, whereas trusting a stale entry loses
+     * every message published against it.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    private function queueLifetime(array $arguments): ?int
+    {
+        $expires = $arguments['x-expires'] ?? null;
+
+        if (! is_numeric($expires)) {
+            return null;
+        }
+
+        $messageTtl = $arguments['x-message-ttl'] ?? 0;
+        $messageTtl = is_numeric($messageTtl) ? (int) $messageTtl : 0;
+
+        return max(1, intdiv((int) $expires - $messageTtl, 2));
+    }
+
+    /**
+     * Whether this process has declared the topology and is still entitled to
+     * assume it is there.
+     */
+    private function hasDeclared(string $memoKey): bool
+    {
+        if (! array_key_exists($memoKey, $this->declaredTopology)) {
+            return false;
+        }
+
+        $expiresAt = $this->declaredTopology[$memoKey];
+
+        if ($expiresAt === null) {
+            return true;
+        }
+
+        if ($expiresAt > $this->currentTimeInMilliseconds()) {
+            return true;
+        }
+
+        unset($this->declaredTopology[$memoKey]);
+
+        return false;
+    }
+
+    /**
+     * Remember a declaration, for `$windowMs` where the topology carries a
+     * broker-side lifetime that bounds how long it may be trusted.
+     */
+    private function rememberDeclaration(string $memoKey, ?int $windowMs = null): void
+    {
+        if ($windowMs === null) {
+            $this->declaredTopology[$memoKey] = null;
+
+            return;
+        }
+
+        $this->declaredTopology[$memoKey] = $this->currentTimeInMilliseconds() + $windowMs;
+    }
+
+    /**
+     * `currentTime()` truncates to whole seconds, which is coarser than the
+     * windows involved here: a declare landing just after a second boundary
+     * would be trusted for up to a second longer than the broker's own timer
+     * allows. Same notion of "now" as `InteractsWithTime`, so `setTestNow()`
+     * still controls both.
+     */
+    private function currentTimeInMilliseconds(): int
+    {
+        return (int) Carbon::now()->format('Uv');
     }
 }
