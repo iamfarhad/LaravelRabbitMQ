@@ -66,6 +66,12 @@ class Consumer extends Worker
     private static ?bool $stopIfNecessaryTakesJobsProcessed = null;
 
     /**
+     * Whether Worker::registerTimeoutHandler() expects Laravel 13's
+     * connection/queue context before the job and options arguments.
+     */
+    private static ?bool $registerTimeoutHandlerTakesConnectionContext = null;
+
+    /**
      * The job currently being processed.
      *
      * Keep this public and untyped to remain compatible with Laravel 13's
@@ -292,7 +298,7 @@ class Consumer extends Worker
         $this->currentJob = $job;
 
         if ($this->supportsAsyncSignals()) {
-            $this->registerTimeoutHandler($job, $options);
+            $this->registerTimeoutHandlerForFramework($connectionName, $queue, $job, $options);
         }
 
         $this->processedJobs++;
@@ -313,6 +319,26 @@ class Consumer extends Worker
         }
 
         return $job;
+    }
+
+    /**
+     * Register the framework timeout handler using the signature exposed by
+     * the installed Laravel version. Laravel 13 added connection and queue
+     * context ahead of the job/options arguments.
+     */
+    private function registerTimeoutHandlerForFramework(
+        string $connectionName,
+        string $queue,
+        ?RabbitMQJob $job,
+        WorkerOptions $options
+    ): void {
+        $arguments = self::registerTimeoutHandlerTakesConnectionContext()
+            ? [$connectionName, $queue, $job, $options]
+            : [$job, $options];
+
+        // Dispatched dynamically because the protected framework method has
+        // different parameter lists across the supported Laravel versions.
+        call_user_func_array([$this, 'registerTimeoutHandler'], $arguments);
     }
 
     /**
@@ -375,11 +401,6 @@ class Consumer extends Worker
         }
 
         return $this->events->until($this->newLoopingEvent($connectionName, $queue, $options)) !== false;
-    }
-
-    public function stop($status = 0, $options = null, $reason = null)
-    {
-        return parent::stop($status, $options, $reason);
     }
 
     /**
@@ -549,6 +570,18 @@ class Consumer extends Worker
         if (class_exists(WorkerIdle::class)) {
             $this->events->dispatch(new WorkerIdle($connectionName, $queue, $options));
         }
+    }
+
+    private static function registerTimeoutHandlerTakesConnectionContext(): bool
+    {
+        if (self::$registerTimeoutHandlerTakesConnectionContext !== null) {
+            return self::$registerTimeoutHandlerTakesConnectionContext;
+        }
+
+        $parameters = (new ReflectionMethod(Worker::class, 'registerTimeoutHandler'))->getParameters();
+
+        return self::$registerTimeoutHandlerTakesConnectionContext = isset($parameters[0])
+            && $parameters[0]->getName() === 'connectionName';
     }
 
     private static function stopIfNecessaryTakesJobsProcessed(): bool

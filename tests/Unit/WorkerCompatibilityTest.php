@@ -68,6 +68,18 @@ class WorkerCompatibilityTest extends UnitTestCase
         );
     }
 
+    public function testTimeoutHandlerGenerationIsDetectedFromTheRealWorkerSignature(): void
+    {
+        $parameters = (new ReflectionMethod(Worker::class, 'registerTimeoutHandler'))->getParameters();
+        $expected = isset($parameters[0]) && $parameters[0]->getName() === 'connectionName';
+
+        $this->assertSame(
+            $expected,
+            (new ReflectionMethod(Consumer::class, 'registerTimeoutHandlerTakesConnectionContext'))->invoke(null),
+            'The consumer must agree with the installed framework about registerTimeoutHandler()\'s signature.'
+        );
+    }
+
     public function testStopStatusIsNormalisedToAnIntegerExitCode(): void
     {
         $consumer = $this->consumer();
