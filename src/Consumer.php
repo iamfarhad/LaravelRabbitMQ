@@ -377,11 +377,6 @@ class Consumer extends Worker
         return $this->events->until($this->newLoopingEvent($connectionName, $queue, $options)) !== false;
     }
 
-    public function stop($status = 0, $options = null, $reason = null)
-    {
-        return parent::stop($status, $options, $reason);
-    }
-
     /**
      * Laravel 13's Looping event takes the WorkerOptions as a third constructor
      * argument; earlier versions take two. Built reflectively so the event
