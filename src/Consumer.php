@@ -9,6 +9,8 @@ use AMQPChannelException;
 use AMQPConnectionException;
 use AMQPEnvelope;
 use AMQPQueue;
+use AMQPQueueException;
+use iamfarhad\LaravelRabbitMQ\Horizon\HorizonRabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use Illuminate\Container\Container;
 use Illuminate\Queue\Events\Looping;
@@ -106,6 +108,11 @@ class Consumer extends Worker
         $this->consumeMode = in_array($mode, ['poll', 'consume'], true) ? $mode : 'poll';
     }
 
+    protected function newAmqpQueue(AMQPChannel $channel): AMQPQueue
+    {
+        return new AMQPQueue($channel);
+    }
+
     /**
      * Listen to the given queue in a loop.
      *
@@ -138,7 +145,7 @@ class Consumer extends Worker
         $this->amqpChannel = $connection->getChannel();
         $jobClass = $connection->getJobClass();
 
-        $amqpQueue = new AMQPQueue($this->amqpChannel);
+        $amqpQueue = $this->newAmqpQueue($this->amqpChannel);
         $amqpQueue->setName($queue);
 
         $this->resolveMaxPriority($connection, $queue);
@@ -181,6 +188,15 @@ class Consumer extends Worker
 
             $this->resetScopeIfSupported();
 
+            // Refresh the consumer queue handle if the underlying channel died or
+            // was replaced by settlement/topology recovery during the last job.
+            if (! $this->amqpChannel->isConnected() || $connection->getChannel() !== $this->amqpChannel) {
+                $connection->declareConfiguredQueue($queue);
+                $this->amqpChannel = $connection->getChannel();
+                $amqpQueue = $this->newAmqpQueue($this->amqpChannel);
+                $amqpQueue->setName($queue);
+            }
+
             $job = null;
 
             try {
@@ -221,50 +237,72 @@ class Consumer extends Worker
     ): int {
         $stopStatus = null;
 
-        $callback = function (AMQPEnvelope $envelope) use (
-            &$stopStatus,
-            $amqpQueue,
-            $connection,
-            $jobClass,
-            $connectionName,
-            $queue,
-            $options,
-            $lastRestart,
-            $startTime
-        ): bool {
-            if (! $this->daemonShouldRun($options, $connectionName, $queue)) {
-                // The broker already handed this delivery over. Returning
-                // without settling it would strand the message unacked for the
-                // whole maintenance/pause window (and up to prefetch_count
-                // messages with it), so hand it straight back instead.
-                $this->requeue($amqpQueue, $envelope);
+        while (true) {
+            while (! $this->daemonShouldRun($options, $connectionName, $queue)) {
+                $status = $this->pauseWorkerAndResolveStatus($options, $lastRestart, $startTime);
 
-                $stopStatus = $this->pauseWorkerAndResolveStatus($options, $lastRestart, $startTime);
-
-                return $stopStatus === null;
+                if ($status !== null) {
+                    return $this->stopWorker($status, $options);
+                }
             }
 
-            $this->resetScopeIfSupported();
+            $pausedDuringConsume = false;
 
-            $job = null;
+            $callback = function (AMQPEnvelope $envelope) use (
+                &$stopStatus,
+                &$pausedDuringConsume,
+                $amqpQueue,
+                $connection,
+                $jobClass,
+                $connectionName,
+                $queue,
+                $options,
+                $lastRestart,
+                $startTime
+            ): bool {
+                if (! $this->daemonShouldRun($options, $connectionName, $queue)) {
+                    // The broker already handed this delivery over. Requeue it
+                    // once and exit consume() so the broker stops pushing
+                    // deliveries while paused (avoids tight requeue loops and
+                    // tripping RabbitMQ 4.x's 20-delivery quorum limit).
+                    $this->requeue($amqpQueue, $envelope);
+                    $pausedDuringConsume = true;
+
+                    return false;
+                }
+
+                $this->resetScopeIfSupported();
+
+                $job = null;
+
+                try {
+                    $job = $this->processEnvelope($envelope, $connection, $jobClass, $connectionName, $queue, $options);
+                } catch (Throwable $exception) {
+                    $this->exceptions->report($exception);
+                    $this->stopWorkerIfLostConnection($exception);
+                }
+
+                $stopStatus = $this->resolveStopStatus($options, $lastRestart, $startTime, $job);
+
+                return $stopStatus === null;
+            };
 
             try {
-                $job = $this->processEnvelope($envelope, $connection, $jobClass, $connectionName, $queue, $options);
-            } catch (Throwable $exception) {
+                $amqpQueue->consume($callback, AMQP_NOPARAM, $this->consumerTag !== '' ? $this->consumerTag : null);
+            } catch (AMQPChannelException|AMQPConnectionException|AMQPQueueException $exception) {
                 $this->exceptions->report($exception);
                 $this->stopWorkerIfLostConnection($exception);
             }
 
-            $stopStatus = $this->resolveStopStatus($options, $lastRestart, $startTime, $job);
+            if ($pausedDuringConsume && $stopStatus === null) {
+                $stopStatus = $this->pauseWorkerAndResolveStatus($options, $lastRestart, $startTime);
 
-            return $stopStatus === null;
-        };
+                if ($stopStatus === null) {
+                    continue;
+                }
+            }
 
-        try {
-            $amqpQueue->consume($callback, AMQP_NOPARAM, $this->consumerTag !== '' ? $this->consumerTag : null);
-        } catch (AMQPChannelException|AMQPConnectionException $exception) {
-            $this->exceptions->report($exception);
-            $this->stopWorkerIfLostConnection($exception);
+            break;
         }
 
         // Consumption ended for a reason the callback never saw (lost
@@ -294,6 +332,11 @@ class Consumer extends Worker
             $connectionName,
             $queue
         );
+        $connection->trackDeliveringChannel($job, $this->amqpChannel);
+
+        if ($connection instanceof HorizonRabbitQueue) {
+            $connection->notifyJobReserved($queue, $job);
+        }
 
         $this->currentJob = $job;
 
@@ -304,15 +347,17 @@ class Consumer extends Worker
         $this->processedJobs++;
         $this->syncProcessedJobCounters(false);
 
-        $this->runJob($job, $connectionName, $options);
+        try {
+            $this->runJob($job, $connectionName, $options);
 
-        $this->syncProcessedJobCounters(true);
+            $this->syncProcessedJobCounters(true);
+        } finally {
+            if ($this->supportsAsyncSignals()) {
+                $this->resetTimeoutHandler();
+            }
 
-        if ($this->supportsAsyncSignals()) {
-            $this->resetTimeoutHandler();
+            $this->currentJob = null;
         }
-
-        $this->currentJob = null;
 
         if ($options->rest > 0) {
             $this->sleep($options->rest);

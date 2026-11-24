@@ -129,6 +129,53 @@ class RabbitMQJobTest extends UnitTestCase
 
         $job->release(0);
     }
+
+    public function testAccessorsPayloadFallbackDeleteAndNonJsonRelease(): void
+    {
+        $rabbitQueue = Mockery::mock(RabbitQueue::class);
+        $rabbitQueue->shouldReceive('ack')->twice();
+        $rabbitQueue->shouldReceive('laterRaw')->once();
+
+        $envelope = Mockery::mock(AMQPEnvelope::class);
+        $envelope->shouldReceive('getBody')->andReturn('not-json');
+        $envelope->shouldReceive('getCorrelationId')->andReturn('corr-xyz');
+        $envelope->shouldReceive('getHeaders')->andReturn(['laravel' => []]);
+        $envelope->shouldReceive('getExchangeName')->andReturn('events');
+        $envelope->shouldReceive('getRoutingKey')->andReturn('orders.created');
+        $envelope->shouldReceive('getDeliveryTag')->andReturn(77);
+
+        $job = new RabbitMQJob(new Container, $rabbitQueue, $envelope, 'rabbitmq', 'orders');
+
+        $this->assertSame('corr-xyz', $job->getJobId());
+        $this->assertSame('not-json', $job->getRawBody());
+        $this->assertSame(['laravel' => []], $job->headers());
+        $this->assertSame('events', $job->exchangeName());
+        $this->assertSame('orders.created', $job->routingKey());
+        $this->assertSame('77', $job->deliveryTag());
+        $this->assertSame(1, $job->attempts());
+        $this->assertSame($rabbitQueue, $job->getRabbitMQ());
+        $this->assertSame($envelope, $job->getRabbitMQMessage());
+
+        $job->delete();
+        $job->release(5);
+    }
+
+    public function testGetJobIdHandlesZeroAndNumericIds(): void
+    {
+        $rabbitQueue = Mockery::mock(RabbitQueue::class);
+
+        $zeroEnv = Mockery::mock(AMQPEnvelope::class);
+        $zeroEnv->shouldReceive('getBody')->andReturn('{"id":"0"}');
+        $zeroEnv->shouldReceive('getCorrelationId')->andReturn('');
+        $zeroJob = new RabbitMQJob(new Container, $rabbitQueue, $zeroEnv, 'rabbitmq', 'orders');
+        $this->assertSame('0', $zeroJob->getJobId());
+
+        $numEnv = Mockery::mock(AMQPEnvelope::class);
+        $numEnv->shouldReceive('getBody')->andReturn('{"id":123}');
+        $numEnv->shouldReceive('getCorrelationId')->andReturn('');
+        $numJob = new RabbitMQJob(new Container, $rabbitQueue, $numEnv, 'rabbitmq', 'orders');
+        $this->assertSame('123', $numJob->getJobId());
+    }
 }
 
 class CustomRabbitMQJobForTest extends RabbitMQJob {}

@@ -94,12 +94,15 @@ class ConnectionFactoryTest extends UnitTestCase
     {
         $this->config['pool']['max_retries'] = 2;
         $this->config['pool']['retry_delay'] = 1; // keep the failing retries fast
-        $factory = new ConnectionFactory($this->config);
 
         // Mock AMQPConnection to always fail
         $mockConnection = Mockery::mock(AMQPConnection::class);
         $mockConnection->shouldReceive('connect')
+            ->twice()
             ->andThrow(new AMQPConnectionException('Connection failed'));
+
+        $factory = (new TestableConnectionFactory($this->config))
+            ->useConnectionFactory(fn (): AMQPConnection => $mockConnection);
 
         $this->expectException(ConnectionException::class);
         $this->expectExceptionMessage('Failed to connect to RabbitMQ after 2 attempts');
@@ -160,5 +163,77 @@ class ConnectionFactoryTest extends UnitTestCase
 
         // Should not throw exception
         $this->assertTrue(true);
+    }
+
+    public function testBuildsSslTlsAndConnectionNameConfigForTesting(): void
+    {
+        $factory = new ConnectionFactory([
+            'connection_name' => 'billing-worker',
+            'transport' => 'tls',
+            'hosts' => [
+                'host' => 'rmq.example.test',
+                'user' => 'svc',
+                'password' => 'pw',
+                'vhost' => '/prod',
+            ],
+            'options' => [
+                'ssl_options' => [
+                    'cafile' => '/etc/ssl/ca.pem',
+                    'local_cert' => '/etc/ssl/cert.pem',
+                    'local_key' => '/etc/ssl/key.pem',
+                    'verify_peer' => false,
+                ],
+            ],
+        ]);
+
+        $config = $factory->buildConnectionConfigForTesting();
+
+        $this->assertSame('rmq.example.test', $config['host']);
+        $this->assertSame(5671, $config['port']);
+        $this->assertSame('billing-worker', $config['connection_name']);
+        $this->assertTrue($config['ssl']);
+        $this->assertSame('/etc/ssl/ca.pem', $config['cacert']);
+        $this->assertSame('/etc/ssl/cert.pem', $config['cert']);
+        $this->assertSame('/etc/ssl/key.pem', $config['key']);
+        $this->assertFalse($config['verify']);
+    }
+
+    public function testSecureFlagSelectsSslTransportAndFailoverCyclesAllHosts(): void
+    {
+        $factory = (new TestableConnectionFactory([
+            'hosts' => [
+                ['host' => 'node-a', 'secure' => true],
+                ['host' => 'node-b', 'secure' => true],
+            ],
+            'pool' => [
+                'max_retries' => 1,
+                'retry_delay' => 0,
+            ],
+        ]))->useConnectionFactory(function (array $config): AMQPConnection {
+            $connection = Mockery::mock(AMQPConnection::class);
+            if ($config['host'] === 'node-a') {
+                $connection->shouldReceive('connect')->andThrow(new AMQPConnectionException('node-a down'));
+            } else {
+                $connection->shouldReceive('connect')->once()->andReturnNull();
+            }
+
+            return $connection;
+        });
+
+        $connection = $factory->createConnection();
+
+        $this->assertInstanceOf(AMQPConnection::class, $connection);
+        $this->assertTrue($factory->attempts[0]['ssl']);
+        $this->assertSame(5671, $factory->attempts[0]['port']);
+    }
+
+    public function testEmptyHostsFallsBackToDefaultHostConfig(): void
+    {
+        $factory = new ConnectionFactory(['hosts' => []]);
+        $config = $factory->buildConnectionConfigForTesting();
+
+        $this->assertSame('127.0.0.1', $config['host']);
+        $this->assertSame(5672, $config['port']);
+        $this->assertSame('guest', $config['login']);
     }
 }

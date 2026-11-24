@@ -15,6 +15,10 @@ use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 return [
     'driver' => 'rabbitmq',
     'queue' => env('RABBITMQ_QUEUE', 'default'),
+    'after_commit' => (bool) env('RABBITMQ_AFTER_COMMIT', false),
+
+    // Set to "horizon" to enable Laravel Horizon integration when laravel/horizon is installed.
+    'worker' => env('RABBITMQ_WORKER', 'default'),
 
     // Label shown in the RabbitMQ management UI and `rabbitmqctl
     // list_connections`. Set this: it is what lets you tell one application's
@@ -79,6 +83,8 @@ return [
     'prioritize_delayed' => (bool) env('RABBITMQ_PRIORITIZE_DELAYED', false),
     'queue_max_priority' => (int) env('RABBITMQ_QUEUE_MAX_PRIORITY', 10),
     'quorum' => (bool) env('RABBITMQ_QUEUE_QUORUM', false),
+    // Optional x-delivery-limit for quorum queues (RabbitMQ 4.x defaults to 20).
+    'delivery_limit' => env('RABBITMQ_QUEUE_DELIVERY_LIMIT', null),
 
     'reroute_failed' => (bool) env('RABBITMQ_REROUTE_FAILED', false),
     'failed_exchange' => env('RABBITMQ_FAILED_EXCHANGE', 'dlx'),

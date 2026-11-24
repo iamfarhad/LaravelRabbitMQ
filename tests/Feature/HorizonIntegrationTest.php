@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Queue;
 use Laravel\Horizon\Events\JobDeleted;
 use Laravel\Horizon\Events\JobPending;
 use Laravel\Horizon\Events\JobPushed;
+use Laravel\Horizon\Events\JobReleased;
 use Laravel\Horizon\Events\JobReserved;
 use Laravel\Horizon\JobPayload;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
@@ -135,6 +136,11 @@ class JobPushed extends HorizonEvent
 }
 
 class JobReserved extends HorizonEvent
+{
+    public function __construct(public $payload) {}
+}
+
+class JobReleased extends HorizonEvent
 {
     public function __construct(public $payload) {}
 }
@@ -385,5 +391,30 @@ PHP);
         $this->assertSame('SomeJobName', $decoded['horizon_job']);
 
         $job->delete();
+    }
+
+    public function testJobDeleteAndReleaseDispatchDeletedAndReleasedEvents(): void
+    {
+        $queue = $this->horizonQueue();
+        $queue->setContainer($this->app);
+
+        Event::fake([JobPending::class, JobPushed::class, JobReserved::class, JobReleased::class, JobDeleted::class]);
+
+        $queue->push('SomeJobName', ['a' => 1], $this->queue);
+        $job = $queue->pop($this->queue);
+        $this->assertInstanceOf(RabbitMQJob::class, $job);
+
+        $job->release(0);
+
+        Event::assertDispatchedTimes(JobPending::class, 1);
+        Event::assertDispatchedTimes(JobPushed::class, 1);
+        Event::assertDispatchedTimes(JobReserved::class, 1);
+        Event::assertDispatchedTimes(JobReleased::class, 1);
+
+        $releasedJob = $queue->pop($this->queue);
+        $this->assertInstanceOf(RabbitMQJob::class, $releasedJob);
+        $releasedJob->delete();
+
+        Event::assertDispatchedTimes(JobDeleted::class, 1);
     }
 }

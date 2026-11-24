@@ -137,19 +137,22 @@ class ChannelPool
     public function closeChannel(AMQPChannel $channel): void
     {
         $channelId = spl_object_id($channel);
+        $wasActive = isset($this->activeChannels[$channelId]);
 
         // Remove from active channels
         unset($this->activeChannels[$channelId], $this->dirtyChannels[$channelId]);
 
-        // Remove from available channels if present
-        $tempQueue = new SplQueue;
-        while (! $this->availableChannels->isEmpty()) {
-            $ch = $this->availableChannels->dequeue();
-            if (spl_object_id($ch) !== $channelId) {
-                $tempQueue->enqueue($ch);
+        // Remove from available channels only if it was not checked out as active
+        if (! $wasActive && ! $this->availableChannels->isEmpty()) {
+            $tempQueue = new SplQueue;
+            while (! $this->availableChannels->isEmpty()) {
+                $ch = $this->availableChannels->dequeue();
+                if (spl_object_id($ch) !== $channelId) {
+                    $tempQueue->enqueue($ch);
+                }
             }
+            $this->availableChannels = $tempQueue;
         }
-        $this->availableChannels = $tempQueue;
 
         // Close the channel safely
         $this->safeCloseChannel($channel);
@@ -182,6 +185,7 @@ class ChannelPool
         $this->dirtyChannels = [];
         $this->currentConnection = null;
         $this->currentChannels = 0;
+        $this->lastHealthCheck = 0;
     }
 
     /**
@@ -299,12 +303,19 @@ class ChannelPool
      */
     private function discardConnection(AMQPConnection $connection): void
     {
+        $connectionId = spl_object_id($connection);
+
         if ($this->currentConnection !== null
-            && spl_object_id($this->currentConnection) === spl_object_id($connection)) {
+            && spl_object_id($this->currentConnection) === $connectionId) {
             $this->currentConnection = null;
         }
 
-        $this->connectionPool->releaseConnection($connection);
+        // Only hand the connection back to the connection pool when no active
+        // channels remain bound to it; otherwise the pool could reuse or close
+        // a connection that still backs live channels.
+        if (($this->connectionChannelCounts[$connectionId] ?? 0) === 0) {
+            $this->connectionPool->releaseConnection($connection);
+        }
     }
 
     /**

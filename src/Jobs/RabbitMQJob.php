@@ -6,6 +6,7 @@ namespace iamfarhad\LaravelRabbitMQ\Jobs;
 
 use AMQPEnvelope;
 use iamfarhad\LaravelRabbitMQ\Exceptions\SettlementException;
+use iamfarhad\LaravelRabbitMQ\Horizon\HorizonRabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Jobs\Listeners\SettleFailedDelivery;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Container\Container;
@@ -81,7 +82,13 @@ class RabbitMQJob extends Job implements JobContract
 
     public function getJobId(): ?string
     {
-        return $this->decoded['id'] ?? $this->amqpEnvelope->getCorrelationId() ?: null;
+        $id = $this->decoded['id'] ?? $this->amqpEnvelope->getCorrelationId();
+
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        return (string) $id;
     }
 
     public function getRawBody(): string
@@ -269,6 +276,12 @@ class RabbitMQJob extends Job implements JobContract
 
     public function delete(): void
     {
+        if (! $this->failed && $this->rabbitQueue instanceof HorizonRabbitQueue) {
+            $this->rabbitQueue->deleteReserved($this->queue, $this);
+
+            return;
+        }
+
         parent::delete();
 
         if (! $this->failed) {
@@ -276,9 +289,25 @@ class RabbitMQJob extends Job implements JobContract
         }
     }
 
+    /**
+     * Mark the job deleted and ACK the broker delivery directly without
+     * re-entering HorizonRabbitQueue::deleteReserved().
+     */
+    public function acknowledgeDeletion(): void
+    {
+        parent::delete();
+        $this->rabbitQueue->ack($this);
+    }
+
     public function release($delay = 0): void
     {
         parent::release();
+
+        if ($this->rabbitQueue instanceof HorizonRabbitQueue) {
+            $this->rabbitQueue->deleteAndRelease($this->queue, $this, is_numeric($delay) ? (int) $delay : 0);
+
+            return;
+        }
 
         $attempts = $this->attempts();
 
@@ -300,14 +329,14 @@ class RabbitMQJob extends Job implements JobContract
     {
         $headers = $this->headers();
 
-        if ($headers === [] || ! isset($headers['laravel'])) {
+        if ($headers === [] || ! isset($headers['laravel']['attempts'])) {
             return null;
         }
 
         return $headers;
     }
 
-    private function payloadForRelease(int $attempts): string
+    public function payloadForRelease(int $attempts): string
     {
         try {
             $payload = json_decode($this->getRawBody(), true, 512, JSON_THROW_ON_ERROR);

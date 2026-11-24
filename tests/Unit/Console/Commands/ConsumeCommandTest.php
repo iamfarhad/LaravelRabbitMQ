@@ -55,6 +55,14 @@ class ConsumeCommandTest extends UnitTestCase
         $this->assertSame('0', $definition->getOption('stop-when-empty-for')->getDefault());
     }
 
+    public function testNumProcessesDefaultsToOne(): void
+    {
+        $definition = $this->makeCommand()->getDefinition();
+
+        $this->assertSame('1', $definition->getOption('num-processes')->getDefault());
+        $this->assertNull($definition->getOption('max-priority')->getDefault());
+    }
+
     public function testGatheringWorkerOptionsSucceedsWithoutAnyOptionsPassed(): void
     {
         $options = $this->gatherWorkerOptions();

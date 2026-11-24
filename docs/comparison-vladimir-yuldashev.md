@@ -9,7 +9,7 @@ This page helps teams choose between this package and `vladimir-yuldashev/larave
 | Primary goal | Production-focused Laravel queue driver with explicit RabbitMQ topology helpers and modern Laravel support | Established Laravel RabbitMQ queue connector with broad community history |
 | AMQP implementation | Native `ext-amqp` | Commonly used with PHP AMQP libraries / package-specific implementation details |
 | Laravel support | 11.x, 12.x, 13.x | Check the upstream package constraints for current support |
-| PHP support | 8.2, 8.3, 8.4, 8.5 | Check the upstream package constraints for current support |
+| PHP support | 8.2, 8.3, 8.4, 8.5, 8.6 | Check the upstream package constraints for current support |
 | RabbitMQ support | 3.13 and 4.x tested in CI; 3.8 - 3.12 best effort | Check upstream docs and CI |
 | Worker modes | Laravel `queue:work`, package `rabbitmq:consume` in `poll` or `consume` mode | Laravel queue worker integration |
 | Connection/channel pooling | Built in | Check upstream implementation |
@@ -24,7 +24,7 @@ Choose `iamfarhad/laravel-rabbitmq` when you want:
 
 - Native `ext-amqp` support.
 - Explicit support for Laravel 11, 12, and 13.
-- CI coverage for PHP 8.2 through 8.5.
+- CI coverage for PHP 8.2 through 8.6.
 - CI coverage for RabbitMQ 3.13 and 4.x.
 - Connection and channel pooling.
 - Optional `basic_consume` worker mode for hot queues.

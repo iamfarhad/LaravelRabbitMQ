@@ -7,6 +7,8 @@ namespace iamfarhad\LaravelRabbitMQ\Tests\Unit;
 use AMQPChannel;
 use Carbon\Carbon;
 use iamfarhad\LaravelRabbitMQ\Connection\PoolManager;
+use iamfarhad\LaravelRabbitMQ\RabbitQueue;
+use iamfarhad\LaravelRabbitMQ\Support\ExchangeManager;
 use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableRabbitQueue;
 use iamfarhad\LaravelRabbitMQ\Tests\UnitTestCase;
 use Illuminate\Config\Repository as ConfigRepository;
@@ -523,5 +525,167 @@ class RabbitQueueTopologyTest extends UnitTestCase
         )));
 
         $this->assertSame(['orders.delay.1000'], $delayQueues);
+    }
+
+    public function testFanoutDelayedQueueDeadLettersThroughDefaultExchange(): void
+    {
+        $this->bindConfig([
+            'exchange' => 'broadcast',
+            'exchange_type' => 'fanout',
+        ]);
+
+        $recordedArguments = [];
+        $currentName = null;
+
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName')->andReturnUsing(function (string $name) use (&$currentName): void {
+            $currentName = $name;
+        });
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('getFlags')->andReturn(2);
+        $amqpQueue->shouldReceive('setArguments')->andReturnUsing(function (array $args) use (&$currentName, &$recordedArguments): void {
+            $recordedArguments[$currentName] = $args;
+        });
+        $amqpQueue->shouldReceive('declareQueue')->andReturn(0);
+        $amqpQueue->shouldReceive('bind');
+
+        $amqpExchange = Mockery::mock(\AMQPExchange::class);
+        $amqpExchange->shouldReceive('setName');
+        $amqpExchange->shouldReceive('setType');
+        $amqpExchange->shouldReceive('setFlags');
+        $amqpExchange->shouldReceive('declareExchange');
+        $amqpExchange->shouldReceive('publish');
+
+        $queue = $this->makeQueue($this->poolManagerWithChannel(), $amqpQueue, $amqpExchange);
+        $queue->laterRaw(5, '{"id":"a"}', 'orders');
+
+        $this->assertArrayHasKey('orders.delay.5000', $recordedArguments);
+        $this->assertSame('', $recordedArguments['orders.delay.5000']['x-dead-letter-exchange']);
+        $this->assertSame('orders', $recordedArguments['orders.delay.5000']['x-dead-letter-routing-key']);
+    }
+
+    public function testLaterRawUsesDelayedPluginWhenEnabled(): void
+    {
+        $this->bindConfig([
+            'delayed_message' => [
+                'plugin_enabled' => true,
+                'exchange' => 'delayed-jobs',
+                'exchange_type' => 'direct',
+            ],
+        ]);
+
+        $publishedExchanges = [];
+        $publishedHeaders = [];
+
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName');
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('getFlags')->andReturn(2);
+        $amqpQueue->shouldReceive('setArguments');
+        $amqpQueue->shouldReceive('declareQueue')->andReturn(0);
+        $amqpQueue->shouldReceive('bind');
+
+        $amqpExchange = Mockery::mock(\AMQPExchange::class);
+        $exchangeName = '';
+        $amqpExchange->shouldReceive('setName')->andReturnUsing(function (string $name) use (&$exchangeName): void {
+            $exchangeName = $name;
+        });
+        $amqpExchange->shouldReceive('publish')->andReturnUsing(
+            function (string $payload, string $routingKey, int $flags, array $attrs) use (&$exchangeName, &$publishedExchanges, &$publishedHeaders): void {
+                $publishedExchanges[] = $exchangeName;
+                $publishedHeaders[] = $attrs['headers'] ?? [];
+            }
+        );
+
+        $queue = $this->makeQueue($this->poolManagerWithChannel(), $amqpQueue, $amqpExchange);
+        $exchangeManager = Mockery::mock(ExchangeManager::class);
+        $exchangeManager->shouldReceive('setupDelayedExchange')->once()->with('delayed-jobs', AMQP_EX_TYPE_DIRECT);
+        (new \ReflectionProperty(RabbitQueue::class, 'exchangeManager'))->setValue($queue, $exchangeManager);
+
+        $queue->laterRaw(5, '{"id":"a"}', 'orders', 2);
+
+        $this->assertSame(['delayed-jobs'], $publishedExchanges);
+        $this->assertSame(5000, $publishedHeaders[0]['x-delay']);
+        $this->assertSame(['attempts' => 2], $publishedHeaders[0]['laravel']);
+    }
+
+    public function testPopHandlesQueueExceptionNotFoundWithoutRecursing(): void
+    {
+        $this->bindConfig([]);
+
+        $poolManager = Mockery::mock(PoolManager::class);
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('isConnected')->andReturn(true);
+        $channel->shouldReceive('getConnection')->andReturn(
+            Mockery::mock(\AMQPConnection::class)->shouldReceive('isConnected')->andReturn(true)->getMock()
+        );
+        $poolManager->shouldReceive('getChannel')->andReturn($channel);
+        $poolManager->shouldReceive('releaseChannel');
+
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName');
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('getFlags')->andReturn(2);
+        $amqpQueue->shouldReceive('setArguments');
+        $amqpQueue->shouldReceive('declareQueue')->andReturn(0);
+        $amqpQueue->shouldReceive('get')
+            ->twice()
+            ->andThrow(new \AMQPQueueException('NOT_FOUND', 404));
+
+        $queue = $this->makeQueue($poolManager, $amqpQueue, null, 'orders');
+
+        $this->assertNull($queue->pop());
+    }
+
+    public function testBulkThrowsWhenMidBatchChannelLossDropsDeferredConfirms(): void
+    {
+        $this->bindConfig(['publisher_confirms' => ['enabled' => true, 'timeout' => 5]]);
+
+        $conn = Mockery::mock(\AMQPConnection::class);
+        $conn->shouldReceive('isConnected')->andReturn(true);
+
+        $channel1 = Mockery::mock(AMQPChannel::class);
+        $channel1->shouldReceive('isConnected')->andReturn(true);
+        $channel1->shouldReceive('getConnection')->andReturn($conn);
+        $channel1->shouldReceive('setConfirmCallback');
+        $channel1->shouldReceive('setReturnCallback');
+        $channel1->shouldReceive('confirmSelect');
+
+        $channel2 = Mockery::mock(AMQPChannel::class);
+        $channel2->shouldReceive('isConnected')->andReturn(true);
+        $channel2->shouldReceive('getConnection')->andReturn($conn);
+        $channel2->shouldReceive('setConfirmCallback');
+        $channel2->shouldReceive('setReturnCallback');
+        $channel2->shouldReceive('confirmSelect');
+
+        $poolManager = Mockery::mock(PoolManager::class);
+        $poolManager->shouldReceive('getChannel')->twice()->andReturn($channel1, $channel2);
+        $poolManager->shouldReceive('markChannelDirty');
+        $poolManager->shouldReceive('releaseChannel')->once()->with($channel1);
+
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName');
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('getFlags')->andReturn(2);
+        $amqpQueue->shouldReceive('setArguments');
+        $amqpQueue->shouldReceive('declareQueue')->andReturn(0);
+
+        $publishCalls = 0;
+        $amqpExchange = Mockery::mock(\AMQPExchange::class);
+        $amqpExchange->shouldReceive('setName');
+        $amqpExchange->shouldReceive('publish')->andReturnUsing(function () use (&$publishCalls): void {
+            $publishCalls++;
+            if ($publishCalls === 2) {
+                throw new \AMQPConnectionException('Socket closed');
+            }
+        });
+
+        $queue = $this->makeQueue($poolManager, $amqpQueue, $amqpExchange, 'orders');
+        $queue->setContainer(Container::getInstance());
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Channel was lost mid-batch before deferred publisher confirms completed.');
+
+        $queue->bulk(['{"id":"a"}', '{"id":"b"}']);
     }
 }

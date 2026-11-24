@@ -42,7 +42,7 @@ class ConnectionPool
         // numeric value set in .env arrives here as a string and would be a
         // TypeError against these typed properties.
         $this->maxConnections = max(1, (int) ($poolConfig['max_connections'] ?? 10));
-        $this->minConnections = max(0, (int) ($poolConfig['min_connections'] ?? 2));
+        $this->minConnections = min($this->maxConnections, max(0, (int) ($poolConfig['min_connections'] ?? 2)));
 
         // Lazy by default: opening min_connections sockets as a side effect of
         // merely resolving the queue connection hits every artisan one-shot and
@@ -114,18 +114,20 @@ class ConnectionPool
 
         unset($this->activeConnections[$connectionId]);
 
-        $tempQueue = new SplQueue;
-        while (! $this->availableConnections->isEmpty()) {
-            $conn = $this->availableConnections->dequeue();
-            if (spl_object_id($conn) === $connectionId) {
-                $tracked = true;
+        if (! $tracked && ! $this->availableConnections->isEmpty()) {
+            $tempQueue = new SplQueue;
+            while (! $this->availableConnections->isEmpty()) {
+                $conn = $this->availableConnections->dequeue();
+                if (spl_object_id($conn) === $connectionId) {
+                    $tracked = true;
 
-                continue;
+                    continue;
+                }
+
+                $tempQueue->enqueue($conn);
             }
-
-            $tempQueue->enqueue($conn);
+            $this->availableConnections = $tempQueue;
         }
-        $this->availableConnections = $tempQueue;
 
         $this->factory->closeConnection($connection);
 
@@ -150,6 +152,7 @@ class ConnectionPool
         }
 
         $this->currentConnections = 0;
+        $this->lastHealthCheck = 0;
     }
 
     public function getStats(): array

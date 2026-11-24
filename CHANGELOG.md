@@ -7,8 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🚀 Added
+
+- Added PHP 8.6 support and CI test matrix coverage for Laravel 12.x and 13.x.
+- Added `delivery_limit` (`RABBITMQ_QUEUE_DELIVERY_LIMIT`) support for RabbitMQ 4.x quorum queues (`x-delivery-limit`).
+
 ### 💥 Fixed — reliability and correctness
 
+- **Delivery settlement now always targets the delivering channel**, preventing `release()` or `failure.ownership=exchange` copy publishing from sending `ack()`/`reject()` to a replacement channel after a mid-flight reconnect.
+- **Late confirmations after a `PublisherConfirms` timeout or clear can no longer confirm newer publishes**; `bulk()` also detects and reports mid-batch channel loss before deferred confirms complete.
+- **`RabbitQueue::pop()` and `Consumer::daemonUsingBasicConsume()` handle `AMQPQueueException` (404 / timeouts)** without crashing or recursing unboundedly.
+- **Octane `RequestTerminated` cleanup closes pooled sockets across every request** while keeping `PoolManager` tracking intact; `RabbitMQConnector::poolCacheKey()` now separates connections with distinct `connection_name`, SSL, or timeout options, and listener guards use `WeakMap` instead of `spl_object_id()`.
+- **`ChannelPool` no longer releases a shared connection while active channels remain bound to it**, and `ConnectionPool` clamps `min_connections` to `max_connections`.
+- **`TransactionManager::transaction()` preserves the original commit exception** instead of masking it with a rollback error.
+- **`laterRaw()` honours `delayed_message.plugin_enabled`**, fanout/headers delay queues dead-letter via the default exchange to avoid broadcasting expired delayed jobs, `Consumer` exits `basic.consume` cleanly while paused instead of spinning on requeues, `RpcServer` catches `\Throwable`, and `ConsumeCommand` defaults `--num-processes` to `1` and forwards `SIGTERM`/`SIGINT`/`SIGQUIT` safely.
+- **Full Laravel Horizon lifecycle integration**: `RabbitMQJob::delete()` and `release()` now route through `HorizonRabbitQueue::deleteReserved()` and `deleteAndRelease()` (dispatching `JobDeleted` and `JobReleased` without re-preparing payloads or firing duplicate `JobPending`/`JobPushed` events), and `Consumer` (`rabbitmq:consume`) dispatches `JobReserved` when `RABBITMQ_WORKER=horizon`.
 - **Repeated channel-creation failures exhausted the connection pool for good.** `ChannelPool` retries a failed channel creation once on a fresh connection, but when the retry failed too, that second connection was never handed back to `ConnectionPool` and stayed counted against `pool.max_connections`. A broker that accepts the connection and then refuses the channel — a refused login behind an AMQP proxy, for example — therefore leaked one connection per failed call, and after `pool.max_connections` failures every later call threw `Connection pool exhausted` until the process was restarted, even once the broker was reachable again. A long-running `queue:work` process looped on that error indefinitely. The retry's connection is now released like the first one.
 
 ## [1.4.3] - 2026-08-18

@@ -99,7 +99,7 @@ class PoolStatsCommand extends Command
         $stats = $poolManager->getStats();
 
         if ($this->option('json')) {
-            $this->line(json_encode($stats, JSON_PRETTY_PRINT));
+            $this->line((string) json_encode($stats, JSON_PRETTY_PRINT));
 
             return 0;
         }

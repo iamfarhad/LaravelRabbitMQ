@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Console\Commands;
 
-use AMQPExchange;
 use iamfarhad\LaravelRabbitMQ\Console\Commands\Concerns\ResolvesRabbitQueue;
 use Illuminate\Console\Command;
 
@@ -29,17 +28,12 @@ class ExchangeDeclareCommand extends Command
             return self::FAILURE;
         }
 
-        $exchange = new AMQPExchange($connection->getAmqpChannel());
-        $exchange->setName((string) $this->argument('name'));
-        $exchange->setType($this->resolveType((string) $this->option('type')));
-
-        $flags = $this->toBool($this->option('durable')) ? AMQP_DURABLE : AMQP_NOPARAM;
-        if ($this->toBool($this->option('auto-delete'))) {
-            $flags |= AMQP_AUTODELETE;
-        }
-
-        $exchange->setFlags($flags);
-        $exchange->declareExchange();
+        $connection->getExchangeManager()->declareExchange(
+            (string) $this->argument('name'),
+            $this->resolveType((string) $this->option('type')),
+            $this->toBool($this->option('durable')),
+            $this->toBool($this->option('auto-delete'))
+        );
 
         $this->info(sprintf('Exchange [%s] declared.', $this->argument('name')));
 

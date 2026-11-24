@@ -6,7 +6,7 @@ This package follows the supported PHP and Laravel versions declared in `compose
 
 | Component | Supported | CI coverage | Notes |
 | --- | --- | --- | --- |
-| PHP | 8.2, 8.3, 8.4, 8.5 | Yes | PHP 8.5 is included in the test matrix to catch upcoming/runtime compatibility issues early. |
+| PHP | 8.2, 8.3, 8.4, 8.5, 8.6 | Yes | PHP 8.6 is included in the test matrix to verify compatibility with the latest PHP release. |
 | Laravel | 12.x, 13.x | Yes | 10.x and 11.x are declared in `composer.json` but are not CI-verified; see the matrix below. |
 | RabbitMQ | 3.13, 4.x | Yes | These are the actively tested broker lines. |
 | RabbitMQ | 3.8 - 3.12 | Best effort | Expected to work for common AMQP 0-9-1 queue usage, but not part of the primary CI matrix. |
@@ -18,12 +18,12 @@ This package follows the supported PHP and Laravel versions declared in `compose
 
 ## Laravel / PHP support matrix
 
-| Laravel | PHP 8.2 | PHP 8.3 | PHP 8.4 | PHP 8.5 | Testbench | In CI |
-| --- | --- | --- | --- | --- | --- | --- |
-| 10.x | Best effort | Best effort | Not tested | Not tested | 8.x | No — see below |
-| 11.x | Best effort | Best effort | Best effort | Best effort | 9.x | No — see below |
-| 12.x | Supported | Supported | Supported | Supported | 10.x | PHP 8.2, 8.3, 8.4, 8.5 |
-| 13.x | Not supported (Laravel 13 requires PHP >= 8.3) | Supported | Supported | Supported | 11.x | PHP 8.3, 8.4, 8.5 |
+| Laravel | PHP 8.2 | PHP 8.3 | PHP 8.4 | PHP 8.5 | PHP 8.6 | Testbench | In CI |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 10.x | Best effort | Best effort | Not tested | Not tested | Not tested | 8.x | No — see below |
+| 11.x | Best effort | Best effort | Best effort | Best effort | Not tested | 9.x | No — see below |
+| 12.x | Supported | Supported | Supported | Supported | Supported | 10.x | PHP 8.2, 8.3, 8.4, 8.5, 8.6 |
+| 13.x | Not supported (Laravel 13 requires PHP >= 8.3) | Supported | Supported | Supported | Supported | 11.x | PHP 8.3, 8.4, 8.5, 8.6 |
 
 The "In CI" column lists the PHP versions each Laravel line is actually built
 against on every pull request.

@@ -24,6 +24,13 @@ class PublisherConfirms
     private int $nextPublishSeqNo = 1;
 
     /**
+     * Highest sequence number whose pending confirm was discarded (e.g. after a
+     * timeout or NACK). Late ACKs arriving for retired tags must be ignored
+     * rather than matched against newer outstanding publishes.
+     */
+    private int $retiredUpToSeqNo = 0;
+
+    /**
      * The broker NACK observed by the confirm callback, if any. Consumable
      * state: the next wait takes it, clears it, and reports it as a failure,
      * so a NACK can only ever fail the wait it was captured for.
@@ -78,6 +85,7 @@ class PublisherConfirms
         $this->confirmMode = false;
         $this->pendingConfirms = [];
         $this->nextPublishSeqNo = 1;
+        $this->retiredUpToSeqNo = 0;
         $this->lastNack = null;
         $this->lastReturn = null;
     }
@@ -188,6 +196,7 @@ class PublisherConfirms
      */
     public function clearPending(): void
     {
+        $this->retiredUpToSeqNo = max($this->retiredUpToSeqNo, $this->nextPublishSeqNo - 1);
         $this->pendingConfirms = [];
         $this->lastNack = null;
         $this->lastReturn = null;
@@ -301,6 +310,12 @@ class PublisherConfirms
 
         if (isset($this->pendingConfirms[$deliveryTag])) {
             return [$this->confirmMessage($deliveryTag)];
+        }
+
+        // Ignore late confirmations for sequence numbers that were already
+        // retired (e.g. after a previous wait timed out and cleared pending).
+        if ($deliveryTag <= $this->retiredUpToSeqNo) {
+            return [];
         }
 
         // A tag we never registered — a raw publish elsewhere on this channel

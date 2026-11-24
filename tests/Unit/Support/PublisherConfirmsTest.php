@@ -388,6 +388,59 @@ class PublisherConfirmsTest extends UnitTestCase
         $this->assertSame(0, $this->confirms->getPendingCount());
     }
 
+    public function testLateAckFromTimedOutPublishDoesNotConfirmNewPublish(): void
+    {
+        $this->enableConfirms();
+        $this->channel->shouldReceive('waitForConfirm')
+            ->once()
+            ->andThrow(new AMQPQueueException('Timeout waiting for confirms'));
+
+        $firstSeq = $this->confirms->registerPendingConfirm('first-correlation');
+        $this->assertSame(1, $firstSeq);
+
+        try {
+            $this->confirms->waitForConfirms();
+            $this->fail('Expected timeout exception.');
+        } catch (\Exception) {
+        }
+
+        $secondSeq = $this->confirms->registerPendingConfirm('second-correlation');
+        $this->assertSame(2, $secondSeq);
+
+        // Late ACK for seqNo 1 arrives while waiting on seqNo 2: must be ignored.
+        $this->assertTrue(($this->ackCallback)(1, false));
+        $this->assertSame(1, $this->confirms->getPendingCount());
+
+        // Real ACK for seqNo 2 resolves it.
+        $this->assertFalse(($this->ackCallback)(2, false));
+        $this->assertSame(0, $this->confirms->getPendingCount());
+    }
+
+    public function testWaitForConfirmsOrDieAndEdgeCases(): void
+    {
+        try {
+            $this->confirms->waitForConfirmsOrDie(1);
+            $this->fail('Expected exception when confirms not enabled.');
+        } catch (\Exception $e) {
+            $this->assertSame('Publisher confirms not enabled', $e->getMessage());
+        }
+
+        $this->assertNull($this->confirms->confirmMessage(999));
+
+        $this->enableConfirms();
+        $this->channel->shouldReceive('waitForConfirm')->twice();
+
+        $this->confirms->registerPendingConfirm('c-1');
+        ($this->ackCallback)(1, false);
+        $this->confirms->waitForConfirmsOrDie(1);
+
+        // Default exchange return formats exchange as (default).
+        ($this->returnCallback)(312, 'NO_ROUTE', '', 'missing');
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('(exchange [(default)], routing key [missing])');
+        $this->confirms->waitForConfirms();
+    }
+
     /**
      * Enable confirm mode while capturing the callbacks ext-amqp would invoke.
      */

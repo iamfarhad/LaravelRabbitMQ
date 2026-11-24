@@ -44,6 +44,22 @@ class RabbitQueueConfigurationTest extends TestCase
         $this->assertArrayNotHasKey('x-max-priority', $arguments);
     }
 
+    public function testBuildsQuorumQueueArgumentsWithDeliveryLimitAndTruthyLazy(): void
+    {
+        config([
+            'queue.connections.rabbitmq.quorum' => true,
+            'queue.connections.rabbitmq.delivery_limit' => '15',
+            'queue.connections.rabbitmq.options.queue.lazy' => 1,
+        ]);
+
+        $queue = $this->makeQueue();
+        $arguments = $this->invokePrivate($queue, 'getQueueArguments', ['default']);
+
+        $this->assertSame('quorum', $arguments['x-queue-type']);
+        $this->assertSame(15, $arguments['x-delivery-limit']);
+        $this->assertSame('lazy', $arguments['x-queue-mode']);
+    }
+
     public function testResolvesExchangeTypeRoutingKeyAndFailedRoutingKey(): void
     {
         config([

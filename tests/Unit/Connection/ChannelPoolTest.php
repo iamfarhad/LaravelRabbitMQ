@@ -326,4 +326,105 @@ class ChannelPoolTest extends UnitTestCase
         $stats = $pool->getStats();
         $this->assertEquals(3, $stats['current_channels']);
     }
+
+    public function testChannelCreationFailureDoesNotReleaseConnectionWithActiveChannels(): void
+    {
+        $this->config['pool']['max_channels_per_connection'] = 5;
+
+        $mockConnection1 = Mockery::mock(AMQPConnection::class);
+        $mockConnection1->shouldReceive('isConnected')->andReturn(true);
+
+        $mockConnection2 = Mockery::mock(AMQPConnection::class);
+        $mockConnection2->shouldReceive('isConnected')->andReturn(true);
+
+        $firstChannel = Mockery::mock(AMQPChannel::class);
+        $secondChannel = Mockery::mock(AMQPChannel::class);
+
+        // Connection 1 gets firstChannel, then fails when creating a second channel;
+        // Connection 2 is used for the retry and succeeds.
+        $this->mockConnectionPool->shouldReceive('getConnection')
+            ->twice()
+            ->andReturn($mockConnection1, $mockConnection2);
+
+        // Connection 1 still backs $firstChannel, so it must NOT be released back
+        // to the connection pool when the second channel creation fails.
+        $this->mockConnectionPool->shouldNotReceive('releaseConnection');
+
+        $attempt = 0;
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(function () use (&$attempt, $firstChannel, $secondChannel): AMQPChannel {
+                $attempt++;
+                if ($attempt === 1) {
+                    return $firstChannel;
+                }
+                if ($attempt === 2) {
+                    throw new AMQPChannelException('Channel limit reached');
+                }
+
+                return $secondChannel;
+            });
+
+        $ch1 = $pool->getChannel();
+        $ch2 = $pool->getChannel();
+
+        $this->assertSame($firstChannel, $ch1);
+        $this->assertSame($secondChannel, $ch2);
+    }
+
+    public function testMarkDirtyCloseIdleAndForeignChannelsAndHealthCheck(): void
+    {
+        $this->config['pool']['health_check_enabled'] = true;
+        $this->config['pool']['health_check_interval'] = 0;
+
+        $conn = Mockery::mock(AMQPConnection::class);
+        $conn->shouldReceive('isConnected')->andReturn(true);
+
+        $deadIdle = Mockery::mock(AMQPChannel::class);
+        $deadIdle->shouldReceive('isConnected')->andReturn(true, false);
+        $deadIdle->shouldReceive('getConnection')->andReturn($conn);
+        $deadIdle->shouldReceive('close')->andReturnNull();
+
+        $healthyIdle = Mockery::mock(AMQPChannel::class);
+        $healthyIdle->shouldReceive('isConnected')->andReturn(true);
+        $healthyIdle->shouldReceive('getConnection')->andReturn($conn);
+        $healthyIdle->shouldReceive('close')->andReturnNull();
+
+        $dirtyActive = Mockery::mock(AMQPChannel::class);
+        $dirtyActive->shouldReceive('isConnected')->andReturn(true);
+        $dirtyActive->shouldReceive('getConnection')->andReturn($conn);
+        $dirtyActive->shouldReceive('close')->once();
+
+        $foreign = Mockery::mock(AMQPChannel::class);
+        $foreign->shouldReceive('isConnected')->andReturn(false);
+
+        $this->mockConnectionPool->shouldReceive('getConnection')->andReturn($conn);
+        $this->mockConnectionPool->shouldReceive('releaseConnection');
+
+        $channels = [$deadIdle, $healthyIdle, $dirtyActive];
+        $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
+            ->useChannelFactory(function () use (&$channels): AMQPChannel {
+                return array_shift($channels);
+            });
+
+        $ch1 = $pool->getChannel();
+        $ch2 = $pool->getChannel();
+        $pool->releaseChannel($ch1);
+        $pool->releaseChannel($ch2);
+        $pool->releaseChannel($foreign);
+
+        // Next getChannel triggers health check (evicts $deadIdle, reuses $healthyIdle).
+        $reused = $pool->getChannel();
+        $this->assertSame($healthyIdle, $reused);
+
+        $pool->releaseChannel($reused);
+        $pool->closeChannel($reused);
+        $pool->closeChannel($foreign);
+
+        $ch3 = $pool->getChannel();
+        $pool->markDirty($ch3);
+        $this->assertTrue($pool->isDirty($ch3));
+        $pool->releaseChannel($ch3);
+        $this->assertFalse($pool->isDirty($ch3));
+        $this->assertSame(0, $pool->getStats()['current_channels']);
+    }
 }

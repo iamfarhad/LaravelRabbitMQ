@@ -162,6 +162,51 @@ class DeliverySettlementTest extends UnitTestCase
         $queue->reject($this->job());
     }
 
+    public function testAckTargetsDeliveringChannelEvenAfterQueueChannelIsReplaced(): void
+    {
+        $conn1 = Mockery::mock(AMQPConnection::class);
+        $conn1->shouldReceive('isConnected')->andReturn(true);
+        $deliveringChannel = Mockery::mock(AMQPChannel::class);
+        $deliveringChannel->shouldReceive('isConnected')->andReturn(true);
+        $deliveringChannel->shouldReceive('getConnection')->andReturn($conn1);
+
+        $conn2 = Mockery::mock(AMQPConnection::class);
+        $conn2->shouldReceive('isConnected')->andReturn(true);
+        $replacementChannel = Mockery::mock(AMQPChannel::class);
+        $replacementChannel->shouldReceive('isConnected')->andReturn(true);
+        $replacementChannel->shouldReceive('getConnection')->andReturn($conn2);
+
+        $poolManager = Mockery::mock(PoolManager::class);
+        $poolManager->shouldReceive('getChannel')->twice()->andReturn($deliveringChannel, $replacementChannel);
+        $poolManager->shouldReceive('releaseChannel')->once()->with($deliveringChannel);
+        $poolManager->shouldNotReceive('releaseChannel')->with($replacementChannel);
+
+        $ackChannelUsed = null;
+        $amqpQueue = Mockery::mock(\AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName');
+        $amqpQueue->shouldReceive('ack')->once()->with(42);
+
+        $queue = TestableRabbitQueue::make($poolManager, 'default');
+        $queue->useQueueFactory(function (AMQPChannel $channel) use ($amqpQueue, &$ackChannelUsed): \AMQPQueue {
+            $ackChannelUsed = $channel;
+
+            return $amqpQueue;
+        });
+
+        $job = $this->job(deliveryTag: 42, queueName: 'orders');
+        $queue->getChannel();
+        $queue->trackDeliveringChannel($job, $deliveringChannel);
+
+        // Simulate an intermediate failure that swaps $this->amqpChannel on RabbitQueue.
+        (new \ReflectionMethod(RabbitQueue::class, 'releaseChannel'))->invoke($queue);
+        $queue->getChannel();
+
+        $queue->ack($job);
+
+        $this->assertSame($deliveringChannel, $ackChannelUsed);
+        $this->assertSame($replacementChannel, $this->cachedChannel($queue));
+    }
+
     private function assertSettlementFailureIsReported(string $operation, \Throwable $brokerFailure): void
     {
         $amqpQueue = $this->amqpQueueDouble();

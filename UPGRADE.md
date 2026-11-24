@@ -156,7 +156,7 @@ them; no configuration change is required.
 
 ## Upgrading PHP or Laravel
 
-- PHP 8.2, 8.3, 8.4, and 8.5 are supported.
+- PHP 8.2, 8.3, 8.4, 8.5, and 8.6 are supported.
 - Laravel 10.x, 11.x, 12.x, and 13.x are supported. Laravel 13 requires PHP 8.3 or newer.
 - Make sure `ext-amqp` is available for the new PHP runtime.
 - Rebuild containers or server images after changing PHP versions.

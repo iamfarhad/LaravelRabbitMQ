@@ -185,4 +185,15 @@ class RpcClient
     {
         return $this->callbackQueueName;
     }
+
+    /**
+     * Delete the exclusive callback queue when the owning channel is retired.
+     */
+    public function close(): void
+    {
+        try {
+            $this->callbackQueue->delete();
+        } catch (\Throwable) {
+        }
+    }
 }
