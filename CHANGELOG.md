@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 💥 Fixed — reliability and correctness
+
+- **Repeated channel-creation failures exhausted the connection pool for good.** `ChannelPool` retries a failed channel creation once on a fresh connection, but when the retry failed too, that second connection was never handed back to `ConnectionPool` and stayed counted against `pool.max_connections`. A broker that accepts the connection and then refuses the channel — a refused login behind an AMQP proxy, for example — therefore leaked one connection per failed call, and after `pool.max_connections` failures every later call threw `Connection pool exhausted` until the process was restarted, even once the broker was reachable again. A long-running `queue:work` process looped on that error indefinitely. The retry's connection is now released like the first one.
+
 ## [1.4.3] - 2026-08-18
 
 ### 💥 Fixed — reliability and correctness

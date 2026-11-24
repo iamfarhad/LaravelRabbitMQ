@@ -220,7 +220,18 @@ class ChannelPool
                 // creation; discard it and retry once on a fresh connection.
                 $this->discardConnection($connection);
                 $connection = $this->acquireConnectionForNewChannel();
-                $channel = $this->newAmqpChannel($connection);
+
+                try {
+                    $channel = $this->newAmqpChannel($connection);
+                } catch (AMQPException $e) {
+                    // Hand the retry's connection back too. Left checked out,
+                    // it is counted against pool.max_connections forever, so
+                    // a broker that keeps refusing channels exhausts the
+                    // connection pool for the life of the process.
+                    $this->discardConnection($connection);
+
+                    throw $e;
+                }
             }
 
             $channelId = spl_object_id($channel);
