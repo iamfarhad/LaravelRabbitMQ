@@ -7,7 +7,9 @@ namespace iamfarhad\LaravelRabbitMQ\Tests\Unit\Connection;
 use AMQPChannel;
 use AMQPChannelException;
 use AMQPConnection;
+use AMQPConnectionException;
 use iamfarhad\LaravelRabbitMQ\Connection\ChannelPool;
+use iamfarhad\LaravelRabbitMQ\Connection\ConnectionFactory;
 use iamfarhad\LaravelRabbitMQ\Connection\ConnectionPool;
 use iamfarhad\LaravelRabbitMQ\Exceptions\QueueException;
 use iamfarhad\LaravelRabbitMQ\Tests\Doubles\TestableChannelPool;
@@ -102,9 +104,14 @@ class ChannelPoolTest extends UnitTestCase
             ->twice()
             ->andReturn($mockConnection1, $mockConnection2);
 
+        // Both connections go back to the connection pool: the one the first
+        // attempt failed on, and the one the retry failed on.
         $this->mockConnectionPool->shouldReceive('releaseConnection')
             ->once()
             ->with($mockConnection1);
+        $this->mockConnectionPool->shouldReceive('releaseConnection')
+            ->once()
+            ->with($mockConnection2);
 
         $pool = TestableChannelPool::make($this->mockConnectionPool, $this->config)
             ->useChannelFactory(function (): AMQPChannel {
@@ -115,6 +122,44 @@ class ChannelPoolTest extends UnitTestCase
         $this->expectExceptionMessage('Failed to create AMQP channel');
 
         $pool->getChannel();
+    }
+
+    /**
+     * A broker that accepts the connection but refuses the channel (e.g. a
+     * proxy whose upstream login is refused) fails every attempt. The retry's
+     * connection used to stay checked out, so `pool.max_connections` failures
+     * exhausted the connection pool for the life of the process.
+     */
+    public function testRepeatedChannelCreationFailuresDoNotExhaustTheConnectionPool(): void
+    {
+        $factory = Mockery::mock(ConnectionFactory::class);
+        $factory->shouldReceive('createConnection')
+            ->andReturnUsing(fn (): AMQPConnection => Mockery::mock(AMQPConnection::class));
+        // The broker closed each connection when it refused the channel.
+        $factory->shouldReceive('isConnectionAlive')->andReturn(false);
+        $factory->shouldReceive('closeConnection');
+
+        $connectionPool = new ConnectionPool($factory, [
+            'pool' => ['max_connections' => 2, 'health_check_enabled' => false],
+        ]);
+
+        $pool = TestableChannelPool::make($connectionPool, $this->config)
+            ->useChannelFactory(function (): AMQPChannel {
+                throw new AMQPConnectionException('ACCESS_REFUSED - Login was refused');
+            });
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            try {
+                $pool->getChannel();
+                $this->fail('Channel creation was expected to fail.');
+            } catch (QueueException $exception) {
+                $this->assertStringContainsString('ACCESS_REFUSED', $exception->getMessage());
+            }
+        }
+
+        $stats = $connectionPool->getStats();
+        $this->assertSame(0, $stats['current_connections']);
+        $this->assertSame(0, $stats['active_connections']);
     }
 
     public function testReleasesChannelBackToPool(): void
