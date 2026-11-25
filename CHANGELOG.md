@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-25
+
 ### 🚀 Added
 
 - Added PHP 8.6 support and CI test matrix coverage for Laravel 12.x and 13.x.
