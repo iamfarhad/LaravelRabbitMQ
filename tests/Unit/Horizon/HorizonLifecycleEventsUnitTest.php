@@ -132,7 +132,7 @@ class JobReserved extends HorizonEvent
 
 class JobReleased extends HorizonEvent
 {
-    public function __construct(public $payload) {}
+    public function __construct(public $payload, public $delay = 0) {}
 }
 
 class JobDeleted extends HorizonEvent
@@ -344,5 +344,95 @@ PHP);
         $this->assertCount(1, $reserved);
         $this->assertSame('orders', $reserved[0]->queue);
         $this->assertSame('rabbitmq', $reserved[0]->connectionName);
+    }
+
+    public function testHorizonReleaseSupportsDateTimeInterfaceDateIntervalAndNonZeroIntDelays(): void
+    {
+        $container = Container::getInstance();
+        $dispatcher = new Dispatcher($container);
+        $container->instance(DispatcherContract::class, $dispatcher);
+
+        $releasedEvents = [];
+        $dispatcher->listen(JobReleased::class, function (JobReleased $event) use (&$releasedEvents): void {
+            $releasedEvents[] = $event;
+        });
+
+        $conn = Mockery::mock(AMQPConnection::class);
+        $conn->shouldReceive('isConnected')->andReturn(true);
+
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('isConnected')->andReturn(true);
+        $channel->shouldReceive('getConnection')->andReturn($conn);
+
+        $poolManager = Mockery::mock(PoolManager::class);
+        $poolManager->shouldReceive('getChannel')->andReturn($channel);
+
+        $declaredQueues = [];
+        $amqpQueue = Mockery::mock(AMQPQueue::class);
+        $amqpQueue->shouldReceive('setName')->andReturnUsing(function (string $name) use (&$declaredQueues): void {
+            $declaredQueues[] = $name;
+        });
+        $amqpQueue->shouldReceive('setFlags');
+        $amqpQueue->shouldReceive('getFlags')->andReturn(2);
+        $amqpQueue->shouldReceive('setArguments');
+        $amqpQueue->shouldReceive('declareQueue')->andReturn(0);
+        $amqpQueue->shouldReceive('ack')->times(3)->with(1);
+
+        $publishedTargets = [];
+        $amqpExchange = Mockery::mock(AMQPExchange::class);
+        $amqpExchange->shouldReceive('setName');
+        $amqpExchange->shouldReceive('publish')->andReturnUsing(
+            function (string $payload, string $routingKey) use (&$publishedTargets): void {
+                $publishedTargets[] = $routingKey;
+            }
+        );
+
+        $queue = new class($poolManager, 'orders', $amqpQueue, $amqpExchange) extends HorizonRabbitQueue
+        {
+            public function __construct(
+                PoolManager $poolManager,
+                string $defaultQueue,
+                private AMQPQueue $queueDouble,
+                private AMQPExchange $exchangeDouble,
+            ) {
+                parent::__construct($poolManager, $defaultQueue);
+            }
+
+            protected function newAmqpQueue(AMQPChannel $channel): AMQPQueue
+            {
+                return $this->queueDouble;
+            }
+
+            protected function newAmqpExchange(AMQPChannel $channel): AMQPExchange
+            {
+                return $this->exchangeDouble;
+            }
+        };
+        $queue->setContainer($container);
+
+        $makeJob = function () use ($container, $queue): RabbitMQJob {
+            $envelope = Mockery::mock(AMQPEnvelope::class);
+            $envelope->shouldReceive('getBody')->andReturn('{"id":"h-delay","horizon_prepared":1}');
+            $envelope->shouldReceive('getCorrelationId')->andReturn('h-delay');
+            $envelope->shouldReceive('getHeaders')->andReturn([]);
+            $envelope->shouldReceive('getDeliveryTag')->andReturn(1);
+
+            return new RabbitMQJob($container, $queue, $envelope, 'rabbitmq', 'orders');
+        };
+
+        $makeJob()->release(new \DateTimeImmutable('+120 seconds'));
+        $makeJob()->release(new \DateInterval('PT45S'));
+        $makeJob()->release(15);
+
+        $this->assertCount(3, $releasedEvents);
+        $this->assertGreaterThanOrEqual(115, $releasedEvents[0]->delay);
+        $this->assertGreaterThanOrEqual(40, $releasedEvents[1]->delay);
+        $this->assertSame(15, $releasedEvents[2]->delay);
+
+        // All three releases must route to delay queues, not immediate 'orders'.
+        $this->assertCount(3, $publishedTargets);
+        foreach ($publishedTargets as $target) {
+            $this->assertStringStartsWith('orders.delay.', $target);
+        }
     }
 }

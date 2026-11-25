@@ -94,7 +94,7 @@ final class ConsumeCommand extends WorkCommand
                 $this->error("Failed to fork process $i");
                 $hasFailure = true;
 
-                continue;
+                break;
             }
 
             if ($pid === 0) {
@@ -109,18 +109,22 @@ final class ConsumeCommand extends WorkCommand
             pcntl_async_signals(true);
         }
 
-        if (function_exists('pcntl_signal')) {
-            $forwardSignal = static function (int $signal) use (&$childPids): void {
-                foreach ($childPids as $pid) {
-                    if (function_exists('posix_kill')) {
-                        posix_kill($pid, $signal);
-                    }
+        $forwardSignal = static function (int $signal) use (&$childPids): void {
+            foreach ($childPids as $pid) {
+                if (function_exists('posix_kill')) {
+                    posix_kill($pid, $signal);
                 }
-            };
+            }
+        };
 
+        if (function_exists('pcntl_signal')) {
             pcntl_signal(SIGTERM, $forwardSignal);
             pcntl_signal(SIGINT, $forwardSignal);
             pcntl_signal(SIGQUIT, $forwardSignal);
+        }
+
+        if ($hasFailure && $childPids !== []) {
+            $forwardSignal(SIGTERM);
         }
 
         foreach ($childPids as $pid) {
@@ -128,9 +132,16 @@ final class ConsumeCommand extends WorkCommand
                 pcntl_signal_dispatch();
             }
 
-            pcntl_waitpid($pid, $status);
+            $status = 0;
 
-            if (pcntl_wifexited($status)) {
+            do {
+                $result = pcntl_waitpid($pid, $status);
+            } while ($result === -1 && pcntl_get_last_error() === PCNTL_EINTR);
+
+            if ($result === -1) {
+                $this->warn("Failed to wait for process $pid");
+                $hasFailure = true;
+            } elseif (pcntl_wifexited($status)) {
                 $exitCode = pcntl_wexitstatus($status);
                 if ($exitCode !== 0) {
                     $this->warn("Process $pid exited with code $exitCode");

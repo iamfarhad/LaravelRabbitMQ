@@ -304,7 +304,7 @@ class RabbitMQJob extends Job implements JobContract
         parent::release();
 
         if ($this->rabbitQueue instanceof HorizonRabbitQueue) {
-            $this->rabbitQueue->deleteAndRelease($this->queue, $this, is_numeric($delay) ? (int) $delay : 0);
+            $this->rabbitQueue->deleteAndRelease($this->queue, $this, $delay);
 
             return;
         }

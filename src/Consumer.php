@@ -292,12 +292,32 @@ class Consumer extends Worker
             } catch (AMQPChannelException|AMQPConnectionException|AMQPQueueException $exception) {
                 $this->exceptions->report($exception);
                 $this->stopWorkerIfLostConnection($exception);
+
+                $stopStatus ??= $this->resolveStopStatus($options, $lastRestart, $startTime, null);
+
+                if ($stopStatus !== null) {
+                    break;
+                }
+
+                // Recoverable channel/queue errors (e.g. read_timeout, consumer
+                // cancel, or 404) rebuild the channel and queue handle so the
+                // worker continues instead of exiting 0 permanently.
+                $amqpQueue = $this->refreshConsumerQueue($connection, $queue);
+
+                continue;
             }
 
             if ($pausedDuringConsume && $stopStatus === null) {
+                // Close the dirty consumer channel before pausing so any
+                // prefetched, unacknowledged deliveries are requeued rather
+                // than stranded while paused.
+                $connection->close();
+
                 $stopStatus = $this->pauseWorkerAndResolveStatus($options, $lastRestart, $startTime);
 
                 if ($stopStatus === null) {
+                    $amqpQueue = $this->refreshConsumerQueue($connection, $queue);
+
                     continue;
                 }
             }
@@ -312,6 +332,19 @@ class Consumer extends Worker
             ?? [static::EXIT_SUCCESS, null];
 
         return $this->stopWorker($stopStatus, $options);
+    }
+
+    private function refreshConsumerQueue(RabbitQueue $connection, string $queue): AMQPQueue
+    {
+        $connection->close();
+        $connection->declareConfiguredQueue($queue);
+        $this->amqpChannel = $connection->getChannel();
+
+        $amqpQueue = $this->newAmqpQueue($this->amqpChannel);
+        $amqpQueue->setName($queue);
+        $this->configureQos($connection);
+
+        return $amqpQueue;
     }
 
     /**

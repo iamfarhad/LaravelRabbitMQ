@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Horizon;
 
+use DateInterval;
+use DateTimeInterface;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -132,19 +134,20 @@ class HorizonRabbitQueue extends RabbitQueue
      * Release a reserved job back onto the queue and notify Horizon with
      * JobReleased instead of re-preparing the payload or firing JobPending/JobPushed.
      */
-    public function deleteAndRelease(?string $queue, RabbitMQJob $job, int|float $delay = 0): void
+    public function deleteAndRelease(?string $queue, RabbitMQJob $job, DateTimeInterface|DateInterval|int|float $delay = 0): void
     {
         $attempts = $job->attempts();
         $payload = $job->payloadForRelease($attempts);
         $queueName = $this->getQueue($queue);
+        $delaySeconds = $this->secondsUntil($delay);
 
-        parent::laterRaw((int) $delay, $payload, $queueName, $attempts);
+        parent::laterRaw($delay, $payload, $queueName, $attempts);
         $this->ack($job);
 
         $this->dispatchHorizonEvent(
             $queueName,
             self::HORIZON_JOB_RELEASED,
-            [$payload]
+            [$payload, $delaySeconds]
         );
     }
 

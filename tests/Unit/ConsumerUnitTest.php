@@ -248,12 +248,13 @@ class ConsumerUnitTest extends UnitTestCase
         $channel = Mockery::mock(AMQPChannel::class);
         $channel->shouldReceive('isConnected')->andReturn(true);
         $channel->shouldReceive('getConnection')->andReturn($conn);
-        $channel->shouldReceive('setPrefetchCount')->once()->with(2);
-        $channel->shouldReceive('setPrefetchSize')->once()->with(1024);
+        $channel->shouldReceive('setPrefetchCount')->twice()->with(2);
+        $channel->shouldReceive('setPrefetchSize')->twice()->with(1024);
 
         $poolManager = Mockery::mock(PoolManager::class);
         $poolManager->shouldReceive('getChannel')->andReturn($channel);
-        $poolManager->shouldReceive('markChannelDirty')->once()->with($channel);
+        $poolManager->shouldReceive('markChannelDirty')->twice()->with($channel);
+        $poolManager->shouldReceive('releaseChannel')->atLeast()->once()->with($channel);
 
         $driverQueue = Mockery::mock(AMQPQueue::class);
         $driverQueue->shouldReceive('setName');
@@ -276,7 +277,7 @@ class ConsumerUnitTest extends UnitTestCase
         $envelope2->shouldReceive('getDeliveryTag')->andReturn(11);
 
         $consumerQueue = Mockery::mock(AMQPQueue::class);
-        $consumerQueue->shouldReceive('setName')->once()->with('orders');
+        $consumerQueue->shouldReceive('setName')->twice()->with('orders');
         $consumerQueue->shouldReceive('reject')->once()->with(10, AMQP_REQUEUE);
 
         $consumePass = 0;
@@ -367,5 +368,111 @@ class ConsumerUnitTest extends UnitTestCase
         $this->assertInstanceOf(RabbitMQJob::class, $consumer->processed[0]);
         $this->assertSame(['read timeout'], $reported);
         $this->assertSame(2, $consumePass);
+    }
+
+    public function testConsumeModeRecoversFromTransientQueueExceptionWithoutExiting(): void
+    {
+        $conn = Mockery::mock(AMQPConnection::class);
+        $conn->shouldReceive('isConnected')->andReturn(true);
+
+        $channel1 = Mockery::mock(AMQPChannel::class);
+        $channel1->shouldReceive('isConnected')->andReturn(true);
+        $channel1->shouldReceive('getConnection')->andReturn($conn);
+        $channel1->shouldReceive('setPrefetchCount')->once()->with(1);
+
+        $channel2 = Mockery::mock(AMQPChannel::class);
+        $channel2->shouldReceive('isConnected')->andReturn(true);
+        $channel2->shouldReceive('getConnection')->andReturn($conn);
+        $channel2->shouldReceive('setPrefetchCount')->once()->with(1);
+
+        $poolManager = Mockery::mock(PoolManager::class);
+        $poolManager->shouldReceive('getChannel')->twice()->andReturn($channel1, $channel2);
+        $poolManager->shouldReceive('markChannelDirty')->twice();
+        $poolManager->shouldReceive('releaseChannel')->once()->with($channel1);
+
+        $driverQueue = Mockery::mock(AMQPQueue::class);
+        $driverQueue->shouldReceive('setName');
+        $driverQueue->shouldReceive('setFlags');
+        $driverQueue->shouldReceive('declareQueue')->andReturn(0);
+
+        $rabbitQueue = TestableRabbitQueue::make($poolManager, 'orders')
+            ->useQueueFactory(fn (): AMQPQueue => $driverQueue);
+
+        $envelope = Mockery::mock(AMQPEnvelope::class);
+        $envelope->shouldReceive('getBody')->andReturn('{"id":"recovered"}');
+        $envelope->shouldReceive('getCorrelationId')->andReturn('recovered');
+        $envelope->shouldReceive('getHeaders')->andReturn([]);
+        $envelope->shouldReceive('getDeliveryTag')->andReturn(1);
+
+        $consumerQueue1 = Mockery::mock(AMQPQueue::class);
+        $consumerQueue1->shouldReceive('setName')->once()->with('orders');
+        $consumerQueue1->shouldReceive('consume')->once()->andThrow(new AMQPQueueException('read timeout'));
+
+        $consumerQueue2 = Mockery::mock(AMQPQueue::class);
+        $consumerQueue2->shouldReceive('setName')->once()->with('orders');
+        $consumerQueue2->shouldReceive('consume')->once()->andReturnUsing(
+            function (callable $callback) use ($envelope): void {
+                $this->assertFalse($callback($envelope));
+            }
+        );
+
+        $manager = Mockery::mock(QueueManager::class);
+        $manager->shouldReceive('connection')->with('rabbitmq')->andReturn($rabbitQueue);
+
+        $events = Mockery::mock(Dispatcher::class);
+        $events->shouldReceive('dispatch');
+        $events->shouldReceive('until')->andReturn(true);
+
+        $reported = [];
+        $exceptions = Mockery::mock(ExceptionHandler::class);
+        $exceptions->shouldReceive('report')->andReturnUsing(function (\Throwable $e) use (&$reported): void {
+            $reported[] = $e->getMessage();
+        });
+
+        $queueCalls = 0;
+        $consumer = new class($manager, $events, $exceptions, fn (): bool => false, $consumerQueue1, $consumerQueue2, $queueCalls) extends Consumer
+        {
+            /** @var list<mixed> */
+            public array $processed = [];
+
+            public function __construct(
+                QueueManager $manager,
+                Dispatcher $events,
+                ExceptionHandler $exceptions,
+                callable $isDownForMaintenance,
+                private AMQPQueue $queue1,
+                private AMQPQueue $queue2,
+                private int &$queueCalls,
+            ) {
+                parent::__construct($manager, $events, $exceptions, $isDownForMaintenance);
+            }
+
+            protected function newAmqpQueue(AMQPChannel $channel): AMQPQueue
+            {
+                $this->queueCalls++;
+
+                return $this->queueCalls === 1 ? $this->queue1 : $this->queue2;
+            }
+
+            public function process($connectionName, $job, WorkerOptions $options): void
+            {
+                $this->shouldQuit = true;
+                $this->processed[] = $job;
+            }
+        };
+
+        $consumer->setContainer(Container::getInstance());
+        $consumer->setCache(new CacheRepository(new ArrayStore));
+        $consumer->setConsumeMode('consume');
+
+        $options = new WorkerOptions;
+        $options->sleep = 0;
+        $options->rest = 0;
+
+        $status = $consumer->daemon('rabbitmq', 'orders', $options);
+
+        $this->assertSame(0, $status);
+        $this->assertSame(['read timeout'], $reported);
+        $this->assertCount(1, $consumer->processed);
     }
 }
