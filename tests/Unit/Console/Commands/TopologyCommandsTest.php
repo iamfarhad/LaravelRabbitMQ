@@ -28,6 +28,7 @@ class TopologyCommandsTest extends TestCase
     {
         $rabbitQueue = Mockery::mock(RabbitQueue::class);
         $rabbitQueue->shouldReceive('setConnectionName')->andReturnSelf();
+        $rabbitQueue->shouldReceive('setConfig')->andReturnSelf();
         $rabbitQueue->shouldReceive('setContainer')->andReturnSelf();
 
         return $rabbitQueue;
