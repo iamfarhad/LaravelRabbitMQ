@@ -83,7 +83,14 @@ class TransactionManager
 
             return $result;
         } catch (\Throwable $e) {
-            $this->rollback();
+            if ($this->inTransaction) {
+                try {
+                    $this->rollback();
+                } catch (\Throwable) {
+                    // Preserve the original failure from $callback or commit().
+                }
+            }
+
             throw $e;
         }
     }

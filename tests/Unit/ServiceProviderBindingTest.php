@@ -170,4 +170,40 @@ class ServiceProviderBindingTest extends TestCase
             'connect() runs on every queue-connection resolution; its listeners must not stack.'
         );
     }
+
+    public function testCloseAllPoolsClosesConnectionsWithoutForgettingPoolManagers(): void
+    {
+        $connector = new RabbitMQConnector($this->app['events']);
+        $config = $this->app['config']->get('queue.connections.rabbitmq');
+        $config['name'] = 'rabbitmq';
+
+        $connector->connect($config);
+
+        $poolManager = RabbitMQConnector::getPoolManager('rabbitmq');
+        $this->assertNotNull($poolManager);
+
+        RabbitMQConnector::closeAllPools();
+
+        $this->assertSame($poolManager, RabbitMQConnector::getPoolManager('rabbitmq'));
+    }
+
+    public function testPoolCacheKeySeparatesConnectionsWithDifferentOptionsOrNames(): void
+    {
+        $connector = new RabbitMQConnector($this->app['events']);
+        $base = $this->app['config']->get('queue.connections.rabbitmq');
+
+        $pollConfig = $base;
+        $pollConfig['name'] = 'rabbitmq_poll';
+        $pollConfig['options']['read_timeout'] = 120;
+
+        $consumeConfig = $base;
+        $consumeConfig['name'] = 'rabbitmq_consume';
+        $consumeConfig['options']['read_timeout'] = 0;
+
+        $connector->connect($pollConfig);
+        $connector->connect($consumeConfig);
+
+        $property = new ReflectionProperty(RabbitMQConnector::class, 'poolManagers');
+        $this->assertCount(2, $property->getValue());
+    }
 }

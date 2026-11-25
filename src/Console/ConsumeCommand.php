@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Console;
 
+use iamfarhad\LaravelRabbitMQ\Connectors\RabbitMQConnector;
 use Illuminate\Queue\Console\WorkCommand;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -43,10 +44,10 @@ final class ConsumeCommand extends WorkCommand
                             {--tries=1 : Number of times to attempt a job before logging it failed}
                             {--rest=0 : Number of seconds to rest between jobs}
                             {--json : Output the queue worker information as JSON}
-                            {--max-priority=null : Maximum priority level to consume}
+                            {--max-priority= : Maximum priority level to consume}
                             {--consumer-tag= : Custom RabbitMQ consumer tag}
                             {--consume-mode= : Consumer mode: poll or consume}
-                            {--num-processes=2 : Number of processes to run in parallel}
+                            {--num-processes=1 : Number of processes to run in parallel}
                            ';
 
     /**
@@ -79,15 +80,21 @@ final class ConsumeCommand extends WorkCommand
             return 1;
         }
 
+        // Ensure the parent has no open AMQP sockets before forking so child
+        // processes never share a socket file descriptor.
+        RabbitMQConnector::resetPoolManager();
+
         $childPids = [];
+        $hasFailure = false;
 
         for ($i = 0; $i < $numProcesses; $i++) {
             $pid = pcntl_fork();
 
             if ($pid === -1) {
                 $this->error("Failed to fork process $i");
+                $hasFailure = true;
 
-                continue;
+                break;
             }
 
             if ($pid === 0) {
@@ -98,30 +105,55 @@ final class ConsumeCommand extends WorkCommand
             $this->info("Started worker process $pid");
         }
 
-        if (function_exists('pcntl_signal')) {
-            pcntl_signal(SIGTERM, function () use (&$childPids) {
-                foreach ($childPids as $pid) {
-                    if (function_exists('posix_kill')) {
-                        posix_kill($pid, SIGTERM);
-                    }
+        if (function_exists('pcntl_async_signals')) {
+            pcntl_async_signals(true);
+        }
+
+        $forwardSignal = static function (int $signal) use (&$childPids): void {
+            foreach ($childPids as $pid) {
+                if (function_exists('posix_kill')) {
+                    posix_kill($pid, $signal);
                 }
-            });
+            }
+        };
+
+        if (function_exists('pcntl_signal')) {
+            pcntl_signal(SIGTERM, $forwardSignal);
+            pcntl_signal(SIGINT, $forwardSignal);
+            pcntl_signal(SIGQUIT, $forwardSignal);
+        }
+
+        if ($hasFailure && $childPids !== []) {
+            $forwardSignal(SIGTERM);
         }
 
         foreach ($childPids as $pid) {
-            pcntl_waitpid($pid, $status);
+            if (function_exists('pcntl_signal_dispatch')) {
+                pcntl_signal_dispatch();
+            }
 
-            if (pcntl_wifexited($status)) {
+            $status = 0;
+
+            do {
+                $result = pcntl_waitpid($pid, $status);
+            } while ($result === -1 && pcntl_get_last_error() === PCNTL_EINTR);
+
+            if ($result === -1) {
+                $this->warn("Failed to wait for process $pid");
+                $hasFailure = true;
+            } elseif (pcntl_wifexited($status)) {
                 $exitCode = pcntl_wexitstatus($status);
                 if ($exitCode !== 0) {
                     $this->warn("Process $pid exited with code $exitCode");
+                    $hasFailure = true;
                 }
             } else {
                 $this->warn("Process $pid terminated abnormally");
+                $hasFailure = true;
             }
         }
 
-        return 0;
+        return $hasFailure ? 1 : 0;
     }
 
     /**
@@ -142,7 +174,7 @@ final class ConsumeCommand extends WorkCommand
             $consumer->setConsumeMode($this->consumeMode());
 
             $maxPriority = $this->option('max-priority');
-            if ($maxPriority !== null && $maxPriority !== '') {
+            if ($maxPriority !== null && $maxPriority !== '' && $maxPriority !== 'null') {
                 $consumer->setMaxPriority((int) $maxPriority);
             }
 

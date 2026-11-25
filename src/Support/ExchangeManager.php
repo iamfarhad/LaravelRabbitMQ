@@ -33,6 +33,16 @@ class ExchangeManager
         private readonly AMQPChannel $channel
     ) {}
 
+    protected function newAmqpExchange(): AMQPExchange
+    {
+        return new AMQPExchange($this->channel);
+    }
+
+    protected function newAmqpQueue(): AMQPQueue
+    {
+        return new AMQPQueue($this->channel);
+    }
+
     /**
      * Declare an exchange
      */
@@ -43,7 +53,7 @@ class ExchangeManager
         bool $autoDelete = false,
         array $arguments = []
     ): AMQPExchange {
-        $exchange = new AMQPExchange($this->channel);
+        $exchange = $this->newAmqpExchange();
         $exchange->setName($name);
         $exchange->setType($type);
         $exchange->setFlags(
@@ -69,7 +79,7 @@ class ExchangeManager
         string $routingKey = '',
         array $arguments = []
     ): void {
-        $queue = new AMQPQueue($this->channel);
+        $queue = $this->newAmqpQueue();
         $queue->setName($queueName);
         $queue->bind($exchangeName, $routingKey, $arguments);
     }
@@ -82,7 +92,7 @@ class ExchangeManager
         string $exchangeName,
         string $routingKey = ''
     ): void {
-        $queue = new AMQPQueue($this->channel);
+        $queue = $this->newAmqpQueue();
         $queue->setName($queueName);
         $queue->unbind($exchangeName, $routingKey);
     }
@@ -96,7 +106,7 @@ class ExchangeManager
         string $routingKey = '',
         array $arguments = []
     ): void {
-        $exchange = new AMQPExchange($this->channel);
+        $exchange = $this->newAmqpExchange();
         $exchange->setName($destinationExchange);
         $exchange->bind($sourceExchange, $routingKey, $arguments);
     }
@@ -106,7 +116,7 @@ class ExchangeManager
      */
     public function deleteExchange(string $name, ?string $flags = null): void
     {
-        $exchange = new AMQPExchange($this->channel);
+        $exchange = $this->newAmqpExchange();
         $exchange->setName($name);
         $exchange->delete($flags);
     }
@@ -121,7 +131,7 @@ class ExchangeManager
         array $attributes = [],
         int $flags = AMQP_NOPARAM
     ): bool {
-        $exchange = new AMQPExchange($this->channel);
+        $exchange = $this->newAmqpExchange();
         $exchange->setName($exchangeName);
 
         $exchange->publish($message, $routingKey, $flags, $attributes);
@@ -153,7 +163,7 @@ class ExchangeManager
 
         // Create dead letter queue
         $dlqName = $queueName.($queueSuffix !== '' ? $queueSuffix : '.dlq');
-        $dlq = new AMQPQueue($this->channel);
+        $dlq = $this->newAmqpQueue();
         $dlq->setName($dlqName);
         $dlq->setFlags(AMQP_DURABLE);
 
@@ -167,7 +177,7 @@ class ExchangeManager
         $this->bindQueue($dlqName, $dlxName, $dlxRoutingKey ?? $queueName);
 
         // Update main queue with DLX arguments
-        $queue = new AMQPQueue($this->channel);
+        $queue = $this->newAmqpQueue();
         $queue->setName($queueName);
         $queue->setFlags(AMQP_DURABLE);
         $queue->setArguments([

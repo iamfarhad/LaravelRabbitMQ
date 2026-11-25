@@ -60,6 +60,16 @@ jobs:
             testbench: '11.*'
             dependency-version: prefer-stable
             rabbitmq: '3.13-management'
+          - php: '8.6'
+            laravel: '12.*'
+            testbench: '10.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
+          - php: '8.6'
+            laravel: '13.*'
+            testbench: '11.*'
+            dependency-version: prefer-stable
+            rabbitmq: '3.13-management'
           - php: '8.2'
             laravel: '12.*'
             testbench: '10.*'

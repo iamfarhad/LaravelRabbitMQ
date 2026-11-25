@@ -83,6 +83,7 @@ Review these before deploying; each is a behaviour change:
 | `options.queue.qos.prefetch_count` | `10` | `1` | Only applies to `RABBITMQ_CONSUME_MODE=consume`. A higher prefetch parks messages behind the job in flight, where a timeout turns them into redeliveries. Raise it deliberately if your workers are I/O-bound. |
 | `pool.lazy` | `false` | `true` | Sockets were opened just by resolving the queue connection. Set `RABBITMQ_LAZY_POOL=false` to pre-warm long-lived workers. |
 | `delay_queue_granularity` | n/a | `1000` ms | Delayed-job TTLs are rounded **up** into buckets so arbitrary delays stop creating one durable queue each. Jobs never fire early. Set to `1` for exact TTLs. |
+| `rabbitmq:consume --num-processes` | `2` | `1` | A single invocation without `--num-processes` now runs one worker instead of forking two. Pass `--num-processes=2` (or scale via Supervisor/Horizon) if you relied on the old default. |
 
 If you rely on sub-second delay precision, either set
 `RABBITMQ_DELAY_QUEUE_GRANULARITY=1` or — better at scale — enable the
@@ -156,7 +157,7 @@ them; no configuration change is required.
 
 ## Upgrading PHP or Laravel
 
-- PHP 8.2, 8.3, 8.4, and 8.5 are supported.
+- PHP 8.2, 8.3, 8.4, 8.5, and 8.6 are supported.
 - Laravel 10.x, 11.x, 12.x, and 13.x are supported. Laravel 13 requires PHP 8.3 or newer.
 - Make sure `ext-amqp` is available for the new PHP runtime.
 - Rebuild containers or server images after changing PHP versions.

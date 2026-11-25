@@ -291,4 +291,80 @@ class ConnectionPoolTest extends UnitTestCase
 
         $this->assertSame($mockConnection, $connection);
     }
+
+    public function testClampsMinConnectionsToMaxConnections(): void
+    {
+        $this->config['pool']['max_connections'] = 2;
+        $this->config['pool']['min_connections'] = 5;
+
+        $conn1 = Mockery::mock(AMQPConnection::class);
+        $conn2 = Mockery::mock(AMQPConnection::class);
+
+        $this->mockFactory->shouldReceive('createConnection')
+            ->twice()
+            ->andReturn($conn1, $conn2);
+
+        $pool = new ConnectionPool($this->mockFactory, $this->config);
+        $stats = $pool->getStats();
+
+        $this->assertSame(2, $stats['current_connections']);
+        $this->assertSame(2, $stats['min_connections']);
+    }
+
+    public function testReleaseIgnoresForeignConnectionsAndDropsDeadConnections(): void
+    {
+        $this->config['pool']['min_connections'] = 0;
+
+        $liveConn = Mockery::mock(AMQPConnection::class);
+        $foreignConn = Mockery::mock(AMQPConnection::class);
+
+        $this->mockFactory->shouldReceive('createConnection')->once()->andReturn($liveConn);
+        $this->mockFactory->shouldReceive('isConnectionAlive')->with($liveConn)->andReturn(false);
+        $this->mockFactory->shouldReceive('closeConnection')->once()->with($liveConn);
+
+        $pool = new ConnectionPool($this->mockFactory, $this->config);
+
+        // Releasing a foreign connection is a no-op.
+        $pool->releaseConnection($foreignConn);
+        $this->assertSame(0, $pool->getStats()['current_connections']);
+
+        $conn = $pool->getConnection();
+        $pool->releaseConnection($conn);
+
+        $this->assertSame(0, $pool->getStats()['current_connections']);
+        $this->assertSame(0, $pool->getStats()['available_connections']);
+    }
+
+    public function testCloseRemovesIdlePooledConnectionAndIgnoresForeignConnection(): void
+    {
+        $this->config['pool']['min_connections'] = 1;
+        $this->config['hosts'] = [['host' => 'rmq-1', 'lazy' => false]];
+
+        $conn = Mockery::mock(AMQPConnection::class);
+        $foreign = Mockery::mock(AMQPConnection::class);
+
+        $this->mockFactory->shouldReceive('createConnection')->once()->andReturn($conn);
+        $this->mockFactory->shouldReceive('closeConnection')->once()->with($conn);
+        $this->mockFactory->shouldReceive('closeConnection')->once()->with($foreign);
+
+        $pool = new ConnectionPool($this->mockFactory, $this->config);
+        $pool->closeConnection($foreign);
+        $this->assertSame(1, $pool->getStats()['current_connections']);
+
+        $pool->closeConnection($conn);
+        $this->assertSame(0, $pool->getStats()['current_connections']);
+        $this->assertSame(0, $pool->getStats()['available_connections']);
+    }
+
+    public function testInitializePoolStopsGracefullyOnConnectionFailure(): void
+    {
+        $this->config['pool']['min_connections'] = 3;
+        $this->mockFactory->shouldReceive('createConnection')
+            ->once()
+            ->andThrow(new ConnectionException('broker unreachable'));
+
+        $pool = new ConnectionPool($this->mockFactory, $this->config);
+
+        $this->assertSame(0, $pool->getStats()['current_connections']);
+    }
 }

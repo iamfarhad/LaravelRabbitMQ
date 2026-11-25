@@ -105,6 +105,53 @@ class TransactionManagerTest extends UnitTestCase
         $this->manager->rollback();
     }
 
+    public function testTransactionPreservesOriginalCommitException(): void
+    {
+        $this->channel->shouldReceive('startTransaction')->once();
+        $this->channel->shouldReceive('commitTransaction')
+            ->once()
+            ->andThrow(new \AMQPChannelException('broker rejected commit'));
+        $this->channel->shouldNotReceive('rollbackTransaction');
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Failed to commit transaction: broker rejected commit');
+
+        $this->manager->transaction(fn () => 'ok');
+    }
+
+    public function testRollbackFailureClearsInTransactionFlagAndThrows(): void
+    {
+        $this->channel->shouldReceive('startTransaction')->once();
+        $this->channel->shouldReceive('rollbackTransaction')
+            ->once()
+            ->andThrow(new \AMQPChannelException('rollback failed'));
+
+        $this->manager->begin();
+
+        try {
+            $this->manager->rollback();
+            $this->fail('Expected rollback exception.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Failed to rollback transaction: rollback failed', $e->getMessage());
+            $this->assertFalse($this->manager->inTransaction());
+        }
+    }
+
+    public function testTransactionPreservesCallbackExceptionEvenWhenRollbackThrows(): void
+    {
+        $this->channel->shouldReceive('startTransaction')->once();
+        $this->channel->shouldReceive('rollbackTransaction')
+            ->once()
+            ->andThrow(new \AMQPChannelException('rollback failed'));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('callback boom');
+
+        $this->manager->transaction(function (): void {
+            throw new \RuntimeException('callback boom');
+        });
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();

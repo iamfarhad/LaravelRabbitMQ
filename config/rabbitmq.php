@@ -72,6 +72,8 @@ return [
     'prioritize_delayed' => (bool) env('RABBITMQ_PRIORITIZE_DELAYED', false),
     'queue_max_priority' => (int) env('RABBITMQ_QUEUE_MAX_PRIORITY', 10),
     'quorum' => (bool) env('RABBITMQ_QUEUE_QUORUM', false),
+    // Optional x-delivery-limit for quorum queues (RabbitMQ 4.x defaults to 20).
+    'delivery_limit' => env('RABBITMQ_QUEUE_DELIVERY_LIMIT', null),
     'reroute_failed' => (bool) env('RABBITMQ_REROUTE_FAILED', false),
     'failed_exchange' => env('RABBITMQ_FAILED_EXCHANGE', ''),
     'failed_routing_key' => env('RABBITMQ_FAILED_ROUTING_KEY', '%s.failed'),

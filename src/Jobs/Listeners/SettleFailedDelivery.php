@@ -9,6 +9,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Queue\Events\JobFailed;
 use Throwable;
+use WeakMap;
 
 /**
  * Settles a permanently failed delivery once Laravel has recorded the failure.
@@ -44,11 +45,11 @@ use Throwable;
 class SettleFailedDelivery
 {
     /**
-     * Dispatchers this listener is already attached to, keyed by object id.
+     * Dispatchers this listener is already attached to.
      *
-     * @var array<int, true>
+     * @var WeakMap<Dispatcher, true>|null
      */
-    private static array $registered = [];
+    private static ?WeakMap $registered = null;
 
     public function handle(JobFailed $event): void
     {
@@ -74,13 +75,13 @@ class SettleFailedDelivery
             return;
         }
 
-        $dispatcherId = spl_object_id($dispatcher);
+        self::$registered ??= new WeakMap;
 
-        if (isset(self::$registered[$dispatcherId])) {
+        if (isset(self::$registered[$dispatcher])) {
             return;
         }
 
-        self::$registered[$dispatcherId] = true;
+        self::$registered[$dispatcher] = true;
 
         $dispatcher->listen(JobFailed::class, self::class);
     }
@@ -91,6 +92,6 @@ class SettleFailedDelivery
      */
     public static function flushRegistrations(): void
     {
-        self::$registered = [];
+        self::$registered = null;
     }
 }

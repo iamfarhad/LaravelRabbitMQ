@@ -28,6 +28,7 @@ use Illuminate\Queue\Queue;
 use Illuminate\Support\Arr;
 use JsonException;
 use Throwable;
+use WeakMap;
 
 class RabbitQueue extends Queue implements RabbitQueueInterface
 {
@@ -89,6 +90,22 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      * confirmed once at the end instead of paying a broker round trip each.
      */
     private bool $deferPublisherConfirms = false;
+
+    /**
+     * Set when a channel carrying unconfirmed deferred publishes in bulk() is
+     * released before waitForConfirms() ran.
+     */
+    private bool $deferredConfirmsLost = false;
+
+    /**
+     * Maps each popped/consumed RabbitMQJob to the AMQPChannel that delivered it,
+     * so settlement always targets the delivering channel even if another
+     * operation (such as release()'s laterRaw() or failed-copy publishing) has
+     * since replaced $this->amqpChannel.
+     *
+     * @var WeakMap<RabbitMQJob, AMQPChannel>|null
+     */
+    private ?WeakMap $deliveringChannels = null;
 
     public function __construct(
         protected readonly PoolManager $poolManager,
@@ -174,6 +191,16 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         if ($this->amqpChannel !== null) {
             $this->poolManager->markChannelDirty($this->amqpChannel);
         }
+    }
+
+    /**
+     * Record the channel that delivered a job so ack()/reject() can never
+     * accidentally target a replacement channel opened later.
+     */
+    public function trackDeliveringChannel(RabbitMQJob $job, AMQPChannel $channel): void
+    {
+        $this->deliveringChannels ??= new WeakMap;
+        $this->deliveringChannels[$job] = $channel;
     }
 
     /*
@@ -271,10 +298,18 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
     private function releaseChannel(): void
     {
+        if ($this->deferPublisherConfirms
+            && $this->publisherConfirms !== null
+            && $this->publisherConfirms->getPendingCount() > 0) {
+            $this->deferredConfirmsLost = true;
+        }
+
         if ($this->amqpChannel !== null) {
             $this->poolManager->releaseChannel($this->amqpChannel);
             $this->amqpChannel = null;
         }
+
+        $this->rpcClient?->close();
 
         // These helpers hold the channel that was active when they were built;
         // once it's replaced they must be rebuilt against the new one instead
@@ -344,6 +379,9 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         return null;
     }
 
+    /**
+     * @phpstan-impure
+     */
     public function push($job, $data = '', $queue = null): ?string
     {
         return $this->enqueueUsing(
@@ -399,11 +437,21 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
      */
     public function laterRaw($delay, $payload, $queue = null, $attempts = 0): ?string
     {
-        $ttl = $this->secondsUntil($delay) * 1000;
+        $delaySeconds = $this->secondsUntil($delay);
+        $ttl = $delaySeconds * 1000;
         $options = ['delay' => $delay, 'attempts' => $attempts];
 
         if ($ttl <= 0) {
             return $this->publishRaw((string) $payload, $queue, $options);
+        }
+
+        if ((bool) $this->connectionConfig('delayed_message.plugin_enabled', false)) {
+            return $this->publishDelayedWithPlugin(
+                $this->getQueue($queue),
+                (string) $payload,
+                $delaySeconds,
+                ['laravel' => ['attempts' => (int) $attempts]]
+            );
         }
 
         $ttl = $this->bucketDelayTtl($ttl);
@@ -452,10 +500,15 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     public function bulk($jobs, $data = '', $queue = null): void
     {
         $this->deferPublisherConfirms = $this->isPublisherConfirmsEnabled();
+        $this->deferredConfirmsLost = false;
 
         try {
             foreach ($jobs as $job) {
                 $this->push($job, $data, $queue);
+            }
+
+            if ($this->deferredConfirmsLost) {
+                throw new Exception('Channel was lost mid-batch before deferred publisher confirms completed.');
             }
 
             // Only wait when something is actually outstanding. waitForConfirm()
@@ -463,60 +516,80 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             // confirm, which is exactly the case under `after_commit`, where
             // enqueueUsing() defers every publish past this point.
             if ($this->publisherConfirms !== null && $this->publisherConfirms->getPendingCount() > 0) {
-                $this->publisherConfirms->waitForConfirms();
+                $this->waitForChannelConfirms();
             }
         } finally {
             $this->deferPublisherConfirms = false;
+            $this->deferredConfirmsLost = false;
         }
     }
 
     public function pop($queue = null)
     {
         $queueName = $this->getQueue($queue);
+        $jobClass = $this->getJobClass();
 
-        try {
-            // Idempotent and memoised: the first poll declares, every later one
-            // is a single basic.get instead of a passive probe plus a get.
-            $this->declareConfiguredQueue($queueName);
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                // Idempotent and memoised: the first poll declares, every later one
+                // is a single basic.get instead of a passive probe plus a get.
+                $this->declareConfiguredQueue($queueName);
 
-            $jobClass = $this->getJobClass();
+                $channel = $this->getChannel();
+                $amqpQueue = $this->newAmqpQueue($channel);
+                $amqpQueue->setName($queueName);
 
-            $amqpQueue = $this->newAmqpQueue($this->getChannel());
-            $amqpQueue->setName($queueName);
+                if (($envelope = $amqpQueue->get(AMQP_NOPARAM)) !== false && $envelope !== null) {
+                    $this->rabbitMQJob = new $jobClass(
+                        $this->container,
+                        $this,
+                        $envelope,
+                        $this->connectionName,
+                        $queueName
+                    );
+                    $this->trackDeliveringChannel($this->rabbitMQJob, $channel);
 
-            if (($envelope = $amqpQueue->get(AMQP_NOPARAM)) !== false && $envelope !== null) {
-                $this->rabbitMQJob = new $jobClass(
-                    $this->container,
-                    $this,
-                    $envelope,
-                    $this->connectionName,
-                    $queueName
-                );
+                    return $this->rabbitMQJob;
+                }
 
-                return $this->rabbitMQJob;
-            }
+                return null;
+            } catch (AMQPChannelException|AMQPQueueException $exception) {
+                if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE && $attempt === 0) {
+                    $this->releaseChannel();
 
-            return null;
-        } catch (AMQPChannelException $exception) {
-            if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
-                $this->releaseChannel();
+                    try {
+                        $this->declareConfiguredQueue($queueName);
 
-                try {
-                    $this->declareConfiguredQueue($queueName);
+                        continue;
+                    } catch (Throwable) {
+                        return null;
+                    }
+                }
 
-                    return $this->pop($queueName);
-                } catch (Throwable) {
+                if ($attempt === 0 && $this->isDeadChannelFailure($exception)) {
+                    $this->releaseChannel();
+
+                    continue;
+                }
+
+                if ($exception->getCode() === self::QUEUE_NOT_FOUND_CODE) {
                     return null;
                 }
-            }
 
-            throw $exception;
-        } catch (AMQPConnectionException $exception) {
-            throw new Exception(
-                'Lost connection: '.$exception->getMessage(),
-                $exception->getCode(),
-                $exception
-            );
+                throw $exception;
+            } catch (AMQPConnectionException $exception) {
+                if ($attempt === 0) {
+                    $this->releaseChannel();
+
+                    continue;
+                }
+
+                throw new Exception(
+                    'Lost connection: '.$exception->getMessage(),
+                    $exception->getCode(),
+                    $exception
+                );
+            }
         }
     }
 
@@ -790,7 +863,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         $arguments = [
             'x-message-ttl' => $ttl,
             'x-expires' => max($ttl * 2, $ttl + 1000),
-            'x-dead-letter-exchange' => $this->getExchange(),
+            'x-dead-letter-exchange' => $this->deadLetterExchangeForDelayQueue(),
             'x-dead-letter-routing-key' => $this->deadLetterRoutingKeyFor($targetQueueName),
         ];
 
@@ -800,13 +873,32 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
     }
 
     /**
+     * Fanout and headers exchanges would broadcast or misroute an expired
+     * delayed job across other bound queues, so route back through the
+     * default exchange by literal queue name in those modes.
+     */
+    private function deadLetterExchangeForDelayQueue(): string
+    {
+        $exchange = $this->getExchange();
+
+        if ($exchange === '') {
+            return '';
+        }
+
+        return match ($this->getExchangeType()) {
+            AMQP_EX_TYPE_FANOUT, AMQP_EX_TYPE_HEADERS => '',
+            default => $exchange,
+        };
+    }
+
+    /**
      * The routing key that gets a dead-lettered message back to its target
      * queue: the literal queue name over the default exchange, the configured
      * pattern over a real exchange the queue is bound to.
      */
     private function deadLetterRoutingKeyFor(string $queueName): string
     {
-        return $this->getExchange() === '' ? $queueName : $this->getRoutingKey($queueName);
+        return $this->deadLetterExchangeForDelayQueue() === '' ? $queueName : $this->getRoutingKey($queueName);
     }
 
     /**
@@ -919,13 +1011,13 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             throw SettlementException::missingDeliveryTag($operation, $queueName);
         }
 
-        // Use the cached channel directly — never getChannel(), which may
-        // swap in a replacement where this delivery tag is meaningless or,
-        // worse, refers to an unrelated delivery.
-        $channel = $this->amqpChannel;
+        // Target the exact channel that delivered this job — never getChannel(),
+        // which may swap in a replacement, and never blindly trust $this->amqpChannel
+        // if an intermediate operation (like release()'s laterRaw()) replaced it.
+        $channel = $this->deliveringChannels[$rabbitMQJob] ?? $this->amqpChannel;
 
         if ($channel === null || ! $this->isChannelUsable($channel)) {
-            $this->releaseChannel();
+            $this->releaseSettlementChannel($channel);
 
             throw SettlementException::channelUnusable($operation, $queueName);
         }
@@ -935,10 +1027,21 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $amqpQueue->setName($queueName);
             $settlement($amqpQueue, $deliveryTag);
         } catch (AMQPChannelException|AMQPConnectionException|AMQPQueueException $exception) {
-            $this->releaseChannel();
+            $this->releaseSettlementChannel($channel);
 
             throw SettlementException::brokerRefused($operation, $queueName, $exception);
         }
+    }
+
+    private function releaseSettlementChannel(?AMQPChannel $channel): void
+    {
+        if ($channel !== null && $channel !== $this->amqpChannel) {
+            $this->poolManager->releaseChannel($channel);
+
+            return;
+        }
+
+        $this->releaseChannel();
     }
 
     public function setOptions(array $options): void
@@ -1049,10 +1152,21 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         $amqpExchange->publish($payload, $routingKey, $this->publishFlags(), $messageAttributes);
 
         if ($confirmsEnabled && ! $this->deferPublisherConfirms) {
-            $this->getPublisherConfirms()->waitForConfirms();
+            $this->waitForChannelConfirms();
         }
 
         return $messageAttributes['correlation_id'];
+    }
+
+    private function waitForChannelConfirms(): void
+    {
+        try {
+            $this->getPublisherConfirms()->waitForConfirms();
+        } catch (Throwable $exception) {
+            $this->releaseChannel();
+
+            throw $exception;
+        }
     }
 
     /**
@@ -1212,12 +1326,25 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             $attributes['headers'] = $headers;
         }
 
-        return $this->getExchangeManager()->publish(
-            $exchangeName,
-            $payload,
-            $routingKey,
-            $attributes
-        );
+        $this->retryOnDeadChannel(function () use ($exchangeName, $payload, $routingKey, $attributes): void {
+            $confirmsEnabled = $this->isPublisherConfirmsEnabled();
+            $amqpExchange = $this->newAmqpExchange($this->getChannel());
+            $amqpExchange->setName($exchangeName);
+
+            if ($confirmsEnabled) {
+                $confirms = $this->getPublisherConfirms();
+                $confirms->enable();
+                $confirms->registerPendingConfirm($attributes['correlation_id']);
+            }
+
+            $amqpExchange->publish($payload, $routingKey, $this->publishFlags(), $attributes);
+
+            if ($confirmsEnabled && ! $this->deferPublisherConfirms) {
+                $this->waitForChannelConfirms();
+            }
+        });
+
+        return true;
     }
 
     public function rpcCall(string $queue, string $message, array $headers = []): string
@@ -1252,7 +1379,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         $queueConfig = (array) $this->connectionConfig("queues.{$queueName}", []);
         $arguments = (array) ($queueConfig['arguments'] ?? []);
 
-        if (($queueConfig['lazy'] ?? $this->connectionConfig('options.queue.lazy', false)) === true) {
+        if ((bool) ($queueConfig['lazy'] ?? $this->connectionConfig('options.queue.lazy', false))) {
             $arguments['x-queue-mode'] = 'lazy';
         }
 
@@ -1263,6 +1390,11 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
 
         if ($this->isQuorumQueue($queueConfig)) {
             $arguments['x-queue-type'] = 'quorum';
+
+            $deliveryLimit = $queueConfig['delivery_limit'] ?? $this->connectionConfig('delivery_limit');
+            if (is_numeric($deliveryLimit) && (int) $deliveryLimit >= 0) {
+                $arguments['x-delivery-limit'] = (int) $deliveryLimit;
+            }
         }
 
         if ($this->connectionConfig('reroute_failed', false)) {
@@ -1396,16 +1528,27 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             'delivery_mode' => self::DELIVERY_MODE_PERSISTENT,
             'content_type' => 'application/json',
             'headers' => array_merge($headers, [
-                'x-delay' => $delay * 1000,
+                'x-delay' => max(0, $delay * 1000),
             ]),
         ];
 
-        $this->getExchangeManager()->publish(
-            $exchangeName,
-            $payload,
-            $queue,
-            $attributes
-        );
+        $this->retryOnDeadChannel(function () use ($exchangeName, $payload, $queue, $attributes): void {
+            $confirmsEnabled = $this->isPublisherConfirmsEnabled();
+            $amqpExchange = $this->newAmqpExchange($this->getChannel());
+            $amqpExchange->setName($exchangeName);
+
+            if ($confirmsEnabled) {
+                $confirms = $this->getPublisherConfirms();
+                $confirms->enable();
+                $confirms->registerPendingConfirm($attributes['correlation_id']);
+            }
+
+            $amqpExchange->publish($payload, $queue, $this->publishFlags(), $attributes);
+
+            if ($confirmsEnabled && ! $this->deferPublisherConfirms) {
+                $this->waitForChannelConfirms();
+            }
+        });
 
         return $correlationId;
     }
@@ -1505,7 +1648,17 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
             return;
         }
 
-        $this->declaredTopology[$memoKey] = $this->currentTimeInMilliseconds() + $windowMs;
+        $now = $this->currentTimeInMilliseconds();
+
+        if (count($this->declaredTopology) >= 128) {
+            foreach ($this->declaredTopology as $key => $expiresAt) {
+                if ($expiresAt !== null && $expiresAt <= $now) {
+                    unset($this->declaredTopology[$key]);
+                }
+            }
+        }
+
+        $this->declaredTopology[$memoKey] = $now + $windowMs;
     }
 
     /**

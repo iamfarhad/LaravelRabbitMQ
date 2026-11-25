@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace iamfarhad\LaravelRabbitMQ\Horizon;
 
+use DateInterval;
+use DateTimeInterface;
 use iamfarhad\LaravelRabbitMQ\Jobs\RabbitMQJob;
 use iamfarhad\LaravelRabbitMQ\RabbitQueue;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -17,6 +19,8 @@ class HorizonRabbitQueue extends RabbitQueue
     private const HORIZON_JOB_PUSHED = 'Laravel\\Horizon\\Events\\JobPushed';
 
     private const HORIZON_JOB_RESERVED = 'Laravel\\Horizon\\Events\\JobReserved';
+
+    private const HORIZON_JOB_RELEASED = 'Laravel\\Horizon\\Events\\JobReleased';
 
     private const HORIZON_JOB_DELETED = 'Laravel\\Horizon\\Events\\JobDeleted';
 
@@ -93,13 +97,18 @@ class HorizonRabbitQueue extends RabbitQueue
     {
         return tap(parent::pop($queue), function ($job) use ($queue): void {
             if ($job instanceof RabbitMQJob) {
-                $this->dispatchHorizonEvent(
-                    $this->getQueue($queue),
-                    self::HORIZON_JOB_RESERVED,
-                    [$job->getRawBody()]
-                );
+                $this->notifyJobReserved($this->getQueue($queue), $job);
             }
         });
+    }
+
+    public function notifyJobReserved(string $queue, RabbitMQJob $job): void
+    {
+        $this->dispatchHorizonEvent(
+            $this->getQueue($queue),
+            self::HORIZON_JOB_RESERVED,
+            [$job->getRawBody()]
+        );
     }
 
     public function deleteReserved($queue, $job): void
@@ -108,18 +117,38 @@ class HorizonRabbitQueue extends RabbitQueue
             return;
         }
 
+        // Settle the delivery before announcing deletion: acking can throw
+        // SettlementException, in which case the broker still owns the message.
+        if (! $job->isDeletedOrReleased()) {
+            $job->acknowledgeDeletion();
+        }
+
         $this->dispatchHorizonEvent(
             $this->getQueue($queue),
             self::HORIZON_JOB_DELETED,
             [$job, $job->getRawBody()]
         );
+    }
 
-        // Settle the delivery too, but only when nothing has settled it yet:
-        // RabbitMQJob::delete() acks, and acking an already-settled delivery
-        // would be reported as a settlement failure.
-        if (! $job->isDeletedOrReleased()) {
-            $job->delete();
-        }
+    /**
+     * Release a reserved job back onto the queue and notify Horizon with
+     * JobReleased instead of re-preparing the payload or firing JobPending/JobPushed.
+     */
+    public function deleteAndRelease(?string $queue, RabbitMQJob $job, DateTimeInterface|DateInterval|int|float $delay = 0): void
+    {
+        $attempts = $job->attempts();
+        $payload = $job->payloadForRelease($attempts);
+        $queueName = $this->getQueue($queue);
+        $delaySeconds = $this->secondsUntil($delay);
+
+        parent::laterRaw($delay, $payload, $queueName, $attempts);
+        $this->ack($job);
+
+        $this->dispatchHorizonEvent(
+            $queueName,
+            self::HORIZON_JOB_RELEASED,
+            [$payload, $delaySeconds]
+        );
     }
 
     private function prepareHorizonPayload(string $payload, string|object|null $job): string

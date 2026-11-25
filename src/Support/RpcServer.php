@@ -27,12 +27,22 @@ class RpcServer
         $this->setupQueue();
     }
 
+    protected function newAmqpQueue(): AMQPQueue
+    {
+        return new AMQPQueue($this->channel);
+    }
+
+    protected function newAmqpExchange(): AMQPExchange
+    {
+        return new AMQPExchange($this->channel);
+    }
+
     /**
      * Setup the RPC server queue
      */
     private function setupQueue(): void
     {
-        $this->queue = new AMQPQueue($this->channel);
+        $this->queue = $this->newAmqpQueue();
         $this->queue->setName($this->queueName);
         $this->queue->setFlags(AMQP_DURABLE);
         $this->queue->declareQueue();
@@ -56,12 +66,20 @@ class RpcServer
 
                 try {
                     $this->processRequest($envelope, $callback);
-                    $this->queue->ack($envelope->getDeliveryTag());
-                } catch (Exception $e) {
+                    $deliveryTag = $envelope->getDeliveryTag();
+
+                    if ($deliveryTag !== null) {
+                        $this->queue->ack($deliveryTag);
+                    }
+                } catch (\Throwable $e) {
                     // Not requeued: the caller is waiting on a reply that will
                     // never come, and an endlessly redelivered bad request
                     // would spin this loop forever.
-                    $this->queue->nack($envelope->getDeliveryTag());
+                    $deliveryTag = $envelope->getDeliveryTag();
+
+                    if ($deliveryTag !== null) {
+                        $this->queue->nack($deliveryTag);
+                    }
                 }
 
                 continue;
@@ -102,7 +120,7 @@ class RpcServer
      */
     private function sendResponse(string $replyTo, string $response, string $correlationId): void
     {
-        $exchange = new AMQPExchange($this->channel);
+        $exchange = $this->newAmqpExchange();
         $exchange->setName('');
 
         $attributes = [

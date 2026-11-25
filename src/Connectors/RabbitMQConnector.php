@@ -14,6 +14,7 @@ use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Queue\Connectors\ConnectorInterface;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\WorkerStopping;
+use WeakMap;
 
 class RabbitMQConnector implements ConnectorInterface
 {
@@ -29,20 +30,21 @@ class RabbitMQConnector implements ConnectorInterface
     private static array $poolManagers = [];
 
     /**
-     * Dispatchers that already have this connector's listeners attached, keyed
-     * by object id. connect() runs on every queue-connection resolution, so
-     * without this guard each resolution stacked another WorkerStopping (and,
-     * under Octane, RequestTerminated) closure — unbounded listener growth and
-     * one closeAll() per accumulated listener on every request.
+     * Dispatchers that already have this connector's listeners attached.
      *
-     * @var array<int, true>
+     * @var WeakMap<Dispatcher, true>|null
      */
-    private static array $cleanupListenersRegistered = [];
+    private static ?WeakMap $cleanupListenersRegistered = null;
 
     /**
-     * @var array<int, true>
+     * @var WeakMap<Dispatcher, true>|null
      */
-    private static array $horizonListenersRegistered = [];
+    private static ?WeakMap $octaneListenersRegistered = null;
+
+    /**
+     * @var WeakMap<Dispatcher, true>|null
+     */
+    private static ?WeakMap $horizonListenersRegistered = null;
 
     public function __construct(private Dispatcher $dispatcher) {}
 
@@ -71,7 +73,7 @@ class RabbitMQConnector implements ConnectorInterface
             $config
         );
 
-        $this->registerCleanupListeners();
+        $this->registerCleanupListeners($config);
         $this->registerHorizonListeners($rabbitQueue);
 
         return $rabbitQueue;
@@ -79,16 +81,23 @@ class RabbitMQConnector implements ConnectorInterface
 
     /**
      * Build a stable cache key from the connection-affecting portion of the config,
-     * so distinct named connections (different hosts/pool settings) never share a
-     * pool, while identical configs can still reuse one.
+     * so distinct named connections (different hosts/pool/transport/timeout/SSL settings)
+     * never share a pool, while identical configs can still reuse one.
      */
     private static function poolCacheKey(array $config): string
     {
+        $options = is_array($config['options'] ?? null) ? $config['options'] : [];
+
         return md5(serialize([
             $config['hosts'] ?? [],
             $config['pool'] ?? [],
             $config['transport'] ?? null,
             $config['protocol'] ?? null,
+            $config['connection_name'] ?? null,
+            $options['ssl_options'] ?? null,
+            $options['read_timeout'] ?? null,
+            $options['write_timeout'] ?? null,
+            $options['connect_timeout'] ?? null,
         ]));
     }
 
@@ -134,38 +143,43 @@ class RabbitMQConnector implements ConnectorInterface
             return;
         }
 
-        $dispatcherId = spl_object_id($this->dispatcher);
+        self::$horizonListenersRegistered ??= new WeakMap;
 
-        if (isset(self::$horizonListenersRegistered[$dispatcherId])) {
+        if (isset(self::$horizonListenersRegistered[$this->dispatcher])) {
             return;
         }
 
-        self::$horizonListenersRegistered[$dispatcherId] = true;
+        self::$horizonListenersRegistered[$this->dispatcher] = true;
 
         $this->dispatcher->listen(JobFailed::class, RabbitMQFailedEvent::class);
     }
 
-    private function registerCleanupListeners(): void
+    private function registerCleanupListeners(array $config = []): void
     {
-        $dispatcherId = spl_object_id($this->dispatcher);
+        self::$cleanupListenersRegistered ??= new WeakMap;
 
-        if (isset(self::$cleanupListenersRegistered[$dispatcherId])) {
-            return;
+        if (! isset(self::$cleanupListenersRegistered[$this->dispatcher])) {
+            self::$cleanupListenersRegistered[$this->dispatcher] = true;
+            $this->dispatcher->listen(WorkerStopping::class, fn () => self::resetPoolManager());
         }
 
-        self::$cleanupListenersRegistered[$dispatcherId] = true;
+        if ($this->shouldResetPoolAfterOctaneRequest($config)) {
+            self::$octaneListenersRegistered ??= new WeakMap;
 
-        $this->dispatcher->listen(WorkerStopping::class, fn () => self::resetPoolManager());
-
-        if ($this->shouldResetPoolAfterOctaneRequest()) {
-            $this->dispatcher->listen(self::OCTANE_REQUEST_TERMINATED, fn () => self::resetPoolManager());
+            if (! isset(self::$octaneListenersRegistered[$this->dispatcher])) {
+                self::$octaneListenersRegistered[$this->dispatcher] = true;
+                // Keep PoolManager references in $poolManagers because Laravel's
+                // QueueManager caches RabbitQueue instances across Octane requests;
+                // only close their connections/channels at the end of each request.
+                $this->dispatcher->listen(self::OCTANE_REQUEST_TERMINATED, fn () => self::closeAllPools());
+            }
         }
     }
 
-    private function shouldResetPoolAfterOctaneRequest(): bool
+    private function shouldResetPoolAfterOctaneRequest(array $config = []): bool
     {
         return class_exists(self::OCTANE_REQUEST_TERMINATED)
-            && (bool) config('queue.connections.rabbitmq.octane.reset_on_request', false);
+            && (bool) ($config['octane']['reset_on_request'] ?? config('queue.connections.rabbitmq.octane.reset_on_request', false));
     }
 
     public static function getPoolManager(?string $connectionName = null): ?PoolManager
@@ -185,11 +199,16 @@ class RabbitMQConnector implements ConnectorInterface
             ?? (count(self::$poolManagers) === 1 ? reset(self::$poolManagers) : null);
     }
 
-    public static function resetPoolManager(): void
+    public static function closeAllPools(): void
     {
         foreach (self::$poolManagers as $poolManager) {
             $poolManager->closeAll();
         }
+    }
+
+    public static function resetPoolManager(): void
+    {
+        self::closeAllPools();
 
         self::$poolManagers = [];
     }
