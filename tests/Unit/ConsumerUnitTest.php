@@ -123,7 +123,7 @@ class ConsumerUnitTest extends UnitTestCase
 
                 $consumer->shouldQuit = true;
 
-                return false;
+                return null;
             }
         );
 
@@ -192,7 +192,7 @@ class ConsumerUnitTest extends UnitTestCase
 
         $consumerQueue = Mockery::mock(AMQPQueue::class);
         $consumerQueue->shouldReceive('setName')->once()->with('orders');
-        $consumerQueue->shouldReceive('get')->once()->with(AMQP_NOPARAM)->andReturn(false);
+        $consumerQueue->shouldReceive('get')->once()->with(AMQP_NOPARAM)->andReturnNull();
 
         $manager = Mockery::mock(QueueManager::class);
         $manager->shouldReceive('connection')->with('rabbitmq')->andReturn($rabbitQueue);

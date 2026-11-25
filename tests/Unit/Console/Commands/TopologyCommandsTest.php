@@ -24,9 +24,18 @@ class TopologyCommandsTest extends TestCase
         parent::tearDown();
     }
 
-    public function testQueueDeclareCommandPassesOptionsToRabbitQueue(): void
+    private function mockRabbitQueue(): RabbitQueue
     {
         $rabbitQueue = Mockery::mock(RabbitQueue::class);
+        $rabbitQueue->shouldReceive('setConnectionName')->andReturnSelf();
+        $rabbitQueue->shouldReceive('setContainer')->andReturnSelf();
+
+        return $rabbitQueue;
+    }
+
+    public function testQueueDeclareCommandPassesOptionsToRabbitQueue(): void
+    {
+        $rabbitQueue = $this->mockRabbitQueue();
         $rabbitQueue->shouldReceive('declareQueue')
             ->once()
             ->with('orders', true, false, [
@@ -56,7 +65,7 @@ class TopologyCommandsTest extends TestCase
 
     public function testQueueDeclareCommandSupportsQuorumAndRejectsNonRabbitConnection(): void
     {
-        $rabbitQueue = Mockery::mock(RabbitQueue::class);
+        $rabbitQueue = $this->mockRabbitQueue();
         $rabbitQueue->shouldReceive('declareQueue')
             ->once()
             ->with('orders-q', true, false, ['x-queue-type' => 'quorum']);
@@ -93,7 +102,7 @@ class TopologyCommandsTest extends TestCase
 
     public function testQueuePurgeAndDeleteCommandsHandleForceAndCancellation(): void
     {
-        $rabbitQueue = Mockery::mock(RabbitQueue::class);
+        $rabbitQueue = $this->mockRabbitQueue();
         $rabbitQueue->shouldReceive('purgeQueue')->once()->with('orders')->andReturn(3);
         $rabbitQueue->shouldReceive('deleteQueue')->once()->with('orders')->andReturn(0);
 
@@ -107,26 +116,23 @@ class TopologyCommandsTest extends TestCase
             }
         });
 
-        config([
-            'queue.default' => 'rabbitmq_test',
-            'queue.connections.rabbitmq_test' => ['driver' => 'mock_rmq'],
-        ]);
+        config(['queue.connections.rabbitmq_test' => ['driver' => 'mock_rmq']]);
 
-        $this->artisan('rabbitmq:queue-purge', ['name' => 'orders'])
+        $this->artisan('rabbitmq:queue-purge', ['name' => 'orders', '--connection' => 'rabbitmq_test'])
             ->expectsConfirmation('Purge queue [orders]?', 'no')
             ->expectsOutputToContain('Cancelled.')
             ->assertExitCode(0);
 
-        $this->artisan('rabbitmq:queue-purge', ['name' => 'orders', '--force' => true])
+        $this->artisan('rabbitmq:queue-purge', ['name' => 'orders', '--connection' => 'rabbitmq_test', '--force' => true])
             ->expectsOutputToContain('Queue [orders] purged.')
             ->assertExitCode(0);
 
-        $this->artisan('rabbitmq:queue-delete', ['name' => 'orders'])
+        $this->artisan('rabbitmq:queue-delete', ['name' => 'orders', '--connection' => 'rabbitmq_test'])
             ->expectsConfirmation('Delete queue [orders]?', 'no')
             ->expectsOutputToContain('Cancelled.')
             ->assertExitCode(0);
 
-        $this->artisan('rabbitmq:queue-delete', ['name' => 'orders', '--force' => true])
+        $this->artisan('rabbitmq:queue-delete', ['name' => 'orders', '--connection' => 'rabbitmq_test', '--force' => true])
             ->expectsOutputToContain('Queue [orders] deleted.')
             ->assertExitCode(0);
     }
@@ -139,7 +145,7 @@ class TopologyCommandsTest extends TestCase
             ->with('events', AMQP_EX_TYPE_TOPIC, false, true)
             ->andReturn(Mockery::mock(\AMQPExchange::class));
 
-        $rabbitQueue = Mockery::mock(RabbitQueue::class);
+        $rabbitQueue = $this->mockRabbitQueue();
         $rabbitQueue->shouldReceive('getExchangeManager')->once()->andReturn($exchangeManager);
 
         $this->app['queue']->addConnector('mock_rmq', fn () => new class($rabbitQueue) implements ConnectorInterface

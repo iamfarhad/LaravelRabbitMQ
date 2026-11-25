@@ -68,7 +68,7 @@ class RpcClientTest extends UnitTestCase
         $amqpQueue->shouldReceive('setFlags');
         $amqpQueue->shouldReceive('declareQueue')->andReturn(0);
         $amqpQueue->shouldReceive('getName')->andReturn('amq.gen-abc');
-        $amqpQueue->shouldReceive('get')->andReturn(false);
+        $amqpQueue->shouldReceive('get')->andReturnNull();
 
         $amqpExchange = Mockery::mock(AMQPExchange::class);
         $amqpExchange->shouldReceive('setName');

@@ -97,10 +97,10 @@ class RpcTest extends UnitTestCase
         $queue->shouldReceive('nack')->once()->with(2);
         $queue->shouldReceive('nack')->once()->with(3);
 
-        $deliveries = [$validEnvelope, $invalidEnvelope, $throwingEnvelope, false];
+        $deliveries = [$validEnvelope, $invalidEnvelope, $throwingEnvelope, null];
         $queue->shouldReceive('get')->times(4)->with(AMQP_NOPARAM)->andReturnUsing(function () use (&$deliveries, $server) {
             $next = array_shift($deliveries);
-            if ($next === false) {
+            if ($next === null) {
                 $server->stop();
             }
 
