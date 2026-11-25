@@ -529,7 +529,7 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
         $queueName = $this->getQueue($queue);
         $jobClass = $this->getJobClass();
 
-        for ($attempt = 0; $attempt < 2; $attempt++) {
+        for ($attempt = 0; ; $attempt++) {
             try {
                 // Idempotent and memoised: the first poll declares, every later one
                 // is a single basic.get instead of a passive probe plus a get.
@@ -591,8 +591,6 @@ class RabbitQueue extends Queue implements RabbitQueueInterface
                 );
             }
         }
-
-        return null;
     }
 
     public function getQueue(?string $queue = null): string
